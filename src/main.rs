@@ -2,7 +2,7 @@ mod CCITT2;
 
 use CCITT2::{SimpleCCITT2, SimpleError};
 use bitvec::prelude::*;
-use rand::Rng;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 pub struct T310Cipher {
     // Key components: two 120-bit sequences
@@ -15,8 +15,6 @@ pub struct T310Cipher {
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
     f_vector: BitVec<u8, Msb0>,
 
-    // Pointer to current position in S1/S2
-    s_pointer: usize,
     //Long Term Key
     // P function mapping {1,2,...27} to {1,...36}
     p: [u8; 27],
@@ -64,7 +62,6 @@ impl T310Cipher {
             s2: s2.clone(),
             u_vector: standard_u_vector,
             f_vector: iv_bitvec,
-            s_pointer: 0,
             p,
             d,
             alpha,
@@ -112,7 +109,7 @@ impl T310Cipher {
         self.single_round();
         let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
         let mut srv_3: [bool; 5] = [true; 5];
-        while (srv_2.iter().all(|&x| x == true) | srv_2.iter().all(|&x| x == false)) {
+        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
             Self::shift_srv(&mut srv_2);
             Self::shift_srv(&mut srv_3);
         }
@@ -124,7 +121,7 @@ impl T310Cipher {
             srv_3[i] ^= char[i];
         }
 
-        while (srv_2.iter().all(|&x| x == true) | srv_2.iter().all(|&x| x == false)) {
+        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
             Self::shift_srv(&mut srv_2);
             Self::shift_srv(&mut srv_3);
         }
@@ -136,7 +133,7 @@ impl T310Cipher {
         self.single_round();
         let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
         let mut srv_3: [bool; 5] = char;
-        while (srv_2.iter().all(|&x| x == true) | srv_2.iter().all(|&x| x == false)) {
+        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
             Self::shift_srv(&mut srv_2);
             Self::shift_srv(&mut srv_3);
         }
@@ -147,50 +144,58 @@ impl T310Cipher {
 
         srv_3
     }
+
+    fn get_u(&self, p: usize) -> bool {
+        if p == 0 {
+            return self.get_s1_bit();
+        }
+        self.u_vector[p]
+    }
+
     #[allow(dead_code)]
     fn single_round(&mut self) {
         let mut t_array = [false; 10];
         for outer_round in 0..12 {
             for inner_round in 0..126 {
-                t_array[9] = t_array[8] ^ self.u_vector[self.p[28 - 2] as usize - 1];
+                t_array[9] = t_array[8] ^ self.get_u(self.p[28 - 2] as usize - 1);
                 t_array[8] = t_array[7]
                     ^ self.z(
-                        self.u_vector[self.p[22 - 2] as usize - 1],
-                        self.u_vector[self.p[23 - 2] as usize - 1],
-                        self.u_vector[self.p[24 - 2] as usize - 1],
-                        self.u_vector[self.p[25 - 2] as usize - 1],
-                        self.u_vector[self.p[26 - 2] as usize - 1],
-                        self.u_vector[self.p[27 - 2] as usize - 1],
+                        self.get_u(self.p[22 - 2] as usize - 1),
+                        self.get_u(self.p[23 - 2] as usize - 1),
+                        self.get_u(self.p[24 - 2] as usize - 1),
+                        self.get_u(self.p[25 - 2] as usize - 1),
+                        self.get_u(self.p[26 - 2] as usize - 1),
+                        self.get_u(self.p[27 - 2] as usize - 1),
                     );
-                t_array[7] = (t_array[6] ^ self.u_vector[self.p[21 - 2] as usize - 1]);
+                t_array[7] = (t_array[6] ^ self.get_u(self.p[21 - 2] as usize - 1));
                 t_array[6] = t_array[5]
                     ^ self.z(
-                        self.u_vector[self.p[15 - 2] as usize - 1],
-                        self.u_vector[self.p[16 - 2] as usize - 1],
-                        self.u_vector[self.p[17 - 2] as usize - 1],
-                        self.u_vector[self.p[18 - 2] as usize - 1],
-                        self.u_vector[self.p[19 - 2] as usize - 1],
-                        self.u_vector[self.p[20 - 2] as usize - 1],
+                        self.get_u(self.p[15 - 2] as usize - 1),
+                        self.get_u(self.p[16 - 2] as usize - 1),
+                        self.get_u(self.p[17 - 2] as usize - 1),
+                        self.get_u(self.p[18 - 2] as usize - 1),
+                        self.get_u(self.p[19 - 2] as usize - 1),
+                        self.get_u(self.p[20 - 2] as usize - 1),
                     );
-                t_array[5] = t_array[4] ^ self.u_vector[self.p[14 - 2] as usize - 1];
+                t_array[5] = t_array[4] ^ self.get_u(self.p[14 - 2] as usize - 1);
                 t_array[4] = t_array[3]
                     ^ self.z(
-                        self.u_vector[self.p[8 - 2] as usize - 1],
-                        self.u_vector[self.p[9 - 2] as usize - 1],
-                        self.u_vector[self.p[10 - 2] as usize - 1],
-                        self.u_vector[self.p[11 - 2] as usize - 1],
-                        self.u_vector[self.p[12 - 2] as usize - 1],
-                        self.u_vector[self.p[13 - 2] as usize - 1],
+                        self.get_u(self.p[8 - 2] as usize - 1),
+                        self.get_u(self.p[9 - 2] as usize - 1),
+                        self.get_u(self.p[10 - 2] as usize - 1),
+                        self.get_u(self.p[11 - 2] as usize - 1),
+                        self.get_u(self.p[12 - 2] as usize - 1),
+                        self.get_u(self.p[13 - 2] as usize - 1),
                     );
-                t_array[3] = t_array[2] ^ self.u_vector[self.p[7 - 2] as usize - 1];
+                t_array[3] = t_array[2] ^ self.get_u(self.p[7 - 2] as usize - 1);
                 t_array[2] = t_array[1]
                     ^ self.z(
                         self.get_s2_bit(),
-                        self.u_vector[self.p[0] as usize - 1],
-                        self.u_vector[self.p[1] as usize - 1],
-                        self.u_vector[self.p[2] as usize - 1],
-                        self.u_vector[self.p[3] as usize - 1],
-                        self.u_vector[self.p[4] as usize - 1],
+                        self.get_u(self.p[2 - 2] as usize - 1),
+                        self.get_u(self.p[3 - 2] as usize),
+                        self.get_u(self.p[4 - 2] as usize),
+                        self.get_u(self.p[5 - 2] as usize),
+                        self.get_u(self.p[6 - 2] as usize - 1),
                     );
                 t_array[1] = self.get_f_bit_and_rotate();
 
@@ -207,14 +212,13 @@ impl T310Cipher {
                 self.s1.rotate_right(1);
                 self.s2.rotate_right(1);
             }
-            //TODO A
-            self.a[outer_round] = self.u_vector[self.alpha as usize]
+            self.a[outer_round] = self.u_vector[self.alpha as usize - 1]
         }
     }
 }
 
 pub fn generate_random_key() -> (BitVec<u8, Msb0>, BitVec<u8, Msb0>) {
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(123456);
 
     // Create two BitVec instances with 120 bits each
     let mut s1 = BitVec::<u8, Msb0>::with_capacity(120);
@@ -262,7 +266,7 @@ pub fn generate_random_key() -> (BitVec<u8, Msb0>, BitVec<u8, Msb0>) {
 
 /// Generate a random 61-bit initialization vector for the T-310 cipher
 pub fn generate_random_iv() -> u64 {
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(1234567);
 
     // Generate a random 64-bit value and mask to 61 bits
     let iv = rng.random::<u64>() & 0x1fffffffffffffff;
@@ -303,6 +307,7 @@ fn main() -> Result<(), SimpleError> {
     let mut cipher_clone = T310Cipher::new(&s1, &s2, iv);
     let mut encrypted: Vec<bool> = vec![];
     for chunk in bool_array.chunks(5) {
+        println!("here");
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
         encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
     }
@@ -310,7 +315,7 @@ fn main() -> Result<(), SimpleError> {
     let mut decrypted: Vec<bool> = vec![];
     for chunk in encrypted.chunks(5) {
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
-        decrypted.extend_from_slice(&cipher_clone.encrypt_character(chunk_array));
+        decrypted.extend_from_slice(&cipher_clone.decrypt_character(chunk_array));
     }
     println!("Decrypted bools: {:?}", decrypted);
 
