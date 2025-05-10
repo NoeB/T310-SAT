@@ -130,7 +130,7 @@ impl SimpleCCITT2 {
                 }
 
                 // If not, check if it's in letters mode
-                if let Some(code) = self.ltrs_map.get(&c) {
+                if let Some(code) = self.ltrs_map.get(&c.to_ascii_uppercase()) {
                     // Switch to letters mode
                     result.push_str(&self.ltrs_code);
                     result.push_str(code);
@@ -140,7 +140,7 @@ impl SimpleCCITT2 {
                 }
             } else {
                 // Check if character exists in letters mode
-                if let Some(code) = self.ltrs_map.get(&c) {
+                if let Some(code) = self.ltrs_map.get(&c.to_ascii_uppercase()) {
                     result.push_str(code);
                     continue;
                 }

@@ -283,7 +283,7 @@ fn main() -> Result<(), SimpleError> {
     let codec = SimpleCCITT2::new();
 
     // Test encoding and decoding
-    let text = "HELLO 1234";
+    let text = "HELLO 1234 TEST T310 test";
     println!("Original: {}", text);
 
     let encoded = codec.encode(text)?;
@@ -307,7 +307,6 @@ fn main() -> Result<(), SimpleError> {
     let mut cipher_clone = T310Cipher::new(&s1, &s2, iv);
     let mut encrypted: Vec<bool> = vec![];
     for chunk in bool_array.chunks(5) {
-        println!("here");
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
         encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
     }
