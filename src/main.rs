@@ -74,8 +74,8 @@ impl T310Cipher {
     #[allow(dead_code)]
     fn z(&self, e1: bool, e2: bool, e3: bool, e4: bool, e5: bool, e6: bool) -> bool {
         let mut result = e1 ^ e5 ^ e6 ^ (e1 & e4) ^ (e2 & e3) ^ (e2 & e5) ^ (e4 & e5) ^ (e5 & e6);
-        result ^= (e1 & e3 & e4) ^ (e1 & e3 & e6) ^ (e1 & e4 & e5) ^ (e2 & e3 & e6) & (e2 & e4 & e6) & (e3 & e5 & e6);
-        result ^= (e1 & e2 & e3 & e4) ^(e1 & e2 & e3 & e5) ^ (e1 & e2 & e5 & e6) ^(e2 & e3 & e4 & e6) ^(e1 & e2 & e3 & e4 & e5);
+        result ^= (e1 & e3 & e4) ^ (e1 & e3 & e6) ^ (e1 & e4 & e5) ^ (e2 & e3 & e6) ^ (e2 & e4 & e6) ^ (e3 & e5 & e6);
+        result ^= (e1 & e2 & e3 & e4) ^(e1 & e2 & e3 & e5) ^ (e1 & e2 & e5 & e6) ^ (e2 & e3 & e4 & e6) ^(e1 & e2 & e3 & e4 & e5);
         result ^= (e1 & e3 & e4 & e5 & e6);
 
         result
@@ -284,6 +284,7 @@ fn main() -> Result<(), SimpleError> {
 
     // Test encoding and decoding
     let text = "HELLO 1234 TEST T310 test";
+    //let text = "HELLO";
     println!("Original: {}", text);
 
     let encoded = codec.encode(text)?;
