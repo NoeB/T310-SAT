@@ -2,18 +2,17 @@ mod CCITT2;
 
 use CCITT2::{SimpleCCITT2, SimpleError};
 use bitvec::prelude::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
 
+use rand::{Rng, SeedableRng, rngs::StdRng};
 pub struct T310Cipher {
     // Key components: two 120-bit sequences
-    s1: BitVec<u8, Msb0>,
-    s2: BitVec<u8, Msb0>,
+    s1: [bool; 120],
+    s2: [bool; 120],
 
     // Standard U-Vector: 37-bit register
-    u_vector: BitVec<u8, Msb0>,
-
+    u_vector: [bool; 37],
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
-    f_vector: BitVec<u8, Msb0>,
+    f_vector: [bool; 61],
 
     //Long Term Key
     // P function mapping {1,2,...27} to {1,...36}
@@ -25,23 +24,18 @@ pub struct T310Cipher {
 }
 
 impl T310Cipher {
-    pub fn new(s1: &BitVec<u8, Msb0>, s2: &BitVec<u8, Msb0>, iv: u64) -> Self {
+    pub fn new(s1: &[bool; 120], s2: &[bool; 120], iv: &[bool; 61]) -> Self {
         // Validate the key components
-        assert_eq!(s1.len(), 120, "S1 key must be 120 bits");
-        assert_eq!(s2.len(), 120, "S2 key must be 120 bits");
-        assert!(iv != 0, "IV must not be all zeros");
+
+        //assert!(iv != 0, "IV must not be all zeros");
 
         // Convert IV to BitVec
-        let mut iv_bitvec = BitVec::<u8, Msb0>::with_capacity(61);
-        for i in (0..61).rev() {
-            iv_bitvec.push((iv >> i) & 1 == 1);
-        }
 
         // Initialize with the standard U-Vector
-        let standard_u_vector = bitvec![u8, Msb0;
-            0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1,
-            1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1,
-            0, 0, 0, 1, 1
+        let standard_u_vector: [bool; 37] = [
+            false, true, true, false, true, false, false, true, true, true, false, false, false,
+            true, true, true, true, true, false, false, true, false, false, false, false, true,
+            false, true, true, false, true, false, false, false, true, true, false,
         ];
 
         // Longterm Key LZS-31 approved ()
@@ -53,15 +47,15 @@ impl T310Cipher {
         let alpha: u8 = 2; // {1,2,3,...36}
         let a = [false; 13];
 
-        println!("s1: {}", s1);
-        println!("s2: {}", s2);
-        println!("standard_u_vector: {}", standard_u_vector);
-        println!("iv_bitvec: {}", iv_bitvec);
+        println!("s1: {:?}", s1);
+        println!("s2: {:?}", s2);
+        println!("standard_u_vector: {:?}", standard_u_vector);
+        println!("iv_bitvec: {:?}", iv);
         Self {
             s1: s1.clone(),
             s2: s2.clone(),
             u_vector: standard_u_vector,
-            f_vector: iv_bitvec,
+            f_vector: iv.clone(),
             p,
             d,
             alpha,
@@ -84,7 +78,7 @@ impl T310Cipher {
     fn get_f_bit_and_rotate(&mut self) -> bool {
         let new_bit = self.f_vector[0] ^ self.f_vector[1] ^ self.f_vector[2] ^ self.f_vector[5];
         self.f_vector.rotate_right(1);
-        self.f_vector.set(0, new_bit);
+        self.f_vector[0] = new_bit;
         return new_bit;
     }
 
@@ -103,6 +97,19 @@ impl T310Cipher {
         let feedback_bit = srv[0] ^ srv[2];
         srv.rotate_left(1);
         srv[4] = feedback_bit;
+    }
+
+    pub fn encrypt_character_simple(&mut self, char: [bool; 5]) -> [bool; 5] {
+        self.single_round();
+        let srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
+
+        [
+            srv_2[0] ^ char[0],
+            srv_2[1] ^ char[1],
+            srv_2[2] ^ char[2],
+            srv_2[3] ^ char[3],
+            srv_2[4] ^ char[4],
+        ]
     }
 
     pub fn encrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
@@ -157,6 +164,7 @@ impl T310Cipher {
         let mut t_array = [false; 10];
         for outer_round in 0..12 {
             for inner_round in 0..126 {
+                //for inner_round in 0..2 {
                 t_array[9] = t_array[8] ^ self.get_u(self.p[28 - 2] as usize - 1);
                 t_array[8] = t_array[7]
                     ^ self.z(
@@ -192,9 +200,9 @@ impl T310Cipher {
                     ^ self.z(
                         self.get_s2_bit(),
                         self.get_u(self.p[2 - 2] as usize - 1),
-                        self.get_u(self.p[3 - 2] as usize),
-                        self.get_u(self.p[4 - 2] as usize),
-                        self.get_u(self.p[5 - 2] as usize),
+                        self.get_u(self.p[3 - 2] as usize - 1),
+                        self.get_u(self.p[4 - 2] as usize - 1),
+                        self.get_u(self.p[5 - 2] as usize - 1),
                         self.get_u(self.p[6 - 2] as usize - 1),
                     );
                 t_array[1] = self.get_f_bit_and_rotate();
@@ -203,11 +211,10 @@ impl T310Cipher {
                 self.u_vector.rotate_right(1);
                 let old_u = self.u_vector.clone();
                 for j in 1..10 {
-                    self.u_vector
-                        .set(4 * j - 3, old_u[self.d[j - 1] as usize] ^ t_array[10 - j]);
+                    self.u_vector[4 * j - 3] = old_u[self.d[j - 1] as usize] ^ t_array[10 - j];
                 }
                 let s1_bit = self.get_s1_bit();
-                self.u_vector.set(0, s1_bit);
+                self.u_vector[0] = s1_bit;
                 // Shift s1 and s2
                 self.s1.rotate_right(1);
                 self.s2.rotate_right(1);
@@ -217,21 +224,17 @@ impl T310Cipher {
     }
 }
 
-pub fn generate_random_key() -> (BitVec<u8, Msb0>, BitVec<u8, Msb0>) {
+pub fn generate_random_key() -> ([bool; 120], [bool; 120]) {
     let mut rng = StdRng::seed_from_u64(123456);
 
-    // Create two BitVec instances with 120 bits each
-    let mut s1 = BitVec::<u8, Msb0>::with_capacity(120);
-    let mut s2 = BitVec::<u8, Msb0>::with_capacity(120);
-
-    // Initialize with the right size
-    s1.resize(120, false);
-    s2.resize(120, false);
+    // Create two arrays with 120 bits each
+    let mut s1 = [false; 120];
+    let mut s2 = [false; 120];
 
     // Generate random bits
     for i in 0..120 {
-        s1.set(i, rng.random_bool(0.5));
-        s2.set(i, rng.random_bool(0.5));
+        s1[i] = rng.random_bool(0.5);
+        s2[i] = rng.random_bool(0.5);
     }
 
     // Ensure parity requirement is met (each 24-bit block must have odd parity)
@@ -240,24 +243,23 @@ pub fn generate_random_key() -> (BitVec<u8, Msb0>, BitVec<u8, Msb0>) {
         let block_end = block_start + 24;
 
         // Calculate parity for each block
-        let s1_parity = s1[block_start..block_end]
-            .iter()
-            .fold(false, |acc, bit| acc ^ *bit);
-        let s2_parity = s2[block_start..block_end]
-            .iter()
-            .fold(false, |acc, bit| acc ^ *bit);
+        let mut s1_parity = false;
+        let mut s2_parity = false;
+
+        for j in block_start..block_end {
+            s1_parity ^= s1[j];
+            s2_parity ^= s2[j];
+        }
 
         // If even parity (false), flip the last bit in the block to make it odd
         if !s1_parity {
             let last_bit_index = block_start + 23;
-            let current_bit = s1[last_bit_index];
-            s1.set(last_bit_index, !current_bit);
+            s1[last_bit_index] = !s1[last_bit_index];
         }
 
         if !s2_parity {
             let last_bit_index = block_start + 23;
-            let current_bit = s2[last_bit_index];
-            s2.set(last_bit_index, !current_bit);
+            s2[last_bit_index] = !s2[last_bit_index];
         }
     }
 
@@ -265,26 +267,31 @@ pub fn generate_random_key() -> (BitVec<u8, Msb0>, BitVec<u8, Msb0>) {
 }
 
 /// Generate a random 61-bit initialization vector for the T-310 cipher
-pub fn generate_random_iv() -> u64 {
+pub fn generate_random_iv() -> [bool; 61] {
     let mut rng = StdRng::seed_from_u64(1234567);
 
     // Generate a random 64-bit value and mask to 61 bits
-    let iv = rng.random::<u64>() & 0x1fffffffffffffff;
+    let mut iv = rng.random::<u64>() & 0x1fffffffffffffff;
 
     // Ensure it's not all zeros
     if iv == 0 {
-        0x1234567890abcdef & 0x1fffffffffffffff
-    } else {
-        iv
+        iv = 0x1234567890abcdef & 0x1fffffffffffffff
     }
+
+    let mut iv_array = [false; 61];
+    for i in 0..61 {
+        iv_array[i] = ((iv >> (60 - i)) & 1) == 1;
+    }
+
+    iv_array
 }
 
 fn main() -> Result<(), SimpleError> {
     let codec = SimpleCCITT2::new();
 
     // Test encoding and decoding
-    let text = "HELLO 1234 TEST T310 test";
-    //let text = "HELLO";
+    //let text = "HELLO 1234 TEST T310 test";
+    let text = "HELLO";
     println!("Original: {}", text);
 
     let encoded = codec.encode(text)?;
@@ -304,23 +311,75 @@ fn main() -> Result<(), SimpleError> {
     let iv = generate_random_iv();
 
     // Create cipher
-    let mut cipher = T310Cipher::new(&s1, &s2, iv);
-    let mut cipher_clone = T310Cipher::new(&s1, &s2, iv);
+    let mut cipher = T310Cipher::new(&s1, &s2, &iv);
+    let mut cipher_clone = T310Cipher::new(&s1, &s2, &iv);
     let mut encrypted: Vec<bool> = vec![];
     for chunk in bool_array.chunks(5) {
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
-        encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
+        //encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
+        encrypted.extend_from_slice(&cipher.encrypt_character_simple(chunk_array));
     }
-    println!("Encrypted bools: {:?}", encrypted);
+    println!("Encrypted bools: {:?}", &encrypted);
+    println!(
+        "Encrypted decoded: {:?}",
+        codec.decode_from_bools(&encrypted)
+    );
     let mut decrypted: Vec<bool> = vec![];
     for chunk in encrypted.chunks(5) {
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
-        decrypted.extend_from_slice(&cipher_clone.decrypt_character(chunk_array));
+        //decrypted.extend_from_slice(&cipher_clone.decrypt_character(chunk_array));
+        decrypted.extend_from_slice(&cipher_clone.encrypt_character_simple(chunk_array));
     }
     println!("Decrypted bools: {:?}", decrypted);
 
     let decoded_text = codec.decode_from_bools(&decrypted);
     println!("Decoded text: {}", decoded_text.unwrap());
 
+    println!("---------------");
+    // Compare SAT output if correect
+
+    let s1_test = [
+        false, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, true, false, true, false, false, false, true, false, false,
+        false, false, true, true, true, true, false, false, true, false, true, true, false, true,
+        false, false, true, true, false, true, true, true, true, false, true, false, false, true,
+        true, false, false, true, true, false, true, true, false, false, true, true, false, true,
+        true, true, true, true, true, true, false, true, true, true, true, true, false, false,
+        true, true, true, true, true, true, false, true, false, false, true, true, true, true,
+        true, false, true, true, true, false, false, false, true, false, false, false, false, true,
+        true, true, true, false, false, false, true, false, false, false,
+    ];
+    let s2_test: [bool; 120] = [
+        false, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, true, true, true, true, false, false,
+        true, false, false, false, true, true, false, false, true, false, false, true, false, true,
+        false, false, false, true, true, true, true, false, true, false, true, false, true, true,
+        false, true, false, true, false, false, false, true, true, true, false, false, true, false,
+        true, false, true, false, false, false, false, false, false, false, true, true, false,
+        true, false, true, true, false, false, false, true, true, false, true, true, false, true,
+        false, true, true, true, true, false, true, false, true, false, false, false, false, true,
+        true, false, false, true, true, true, true, true, false, false, false,
+    ];
+    let iv_test = [
+        true, false, false, false, true, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false,
+    ];
+
+    let mut cipher_clone = T310Cipher::new(&s1_test, &s2_test, &iv_test);
+
+    let mut encrypted: Vec<bool> = vec![];
+    for chunk in bool_array.chunks(5) {
+        let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
+        //encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
+        encrypted.extend_from_slice(&cipher_clone.encrypt_character_simple(chunk_array));
+    }
+    println!("Encrypted bools2: {:?}", &encrypted);
+    println!(
+        "Encrypted decoded: {:?}",
+        codec.decode_from_bools(&encrypted)
+    );
     Ok(())
 }
