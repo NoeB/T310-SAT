@@ -1,5 +1,6 @@
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::collections::HashMap;
-
 // Simple error type
 #[derive(Debug)]
 pub enum SimpleError {
@@ -7,7 +8,24 @@ pub enum SimpleError {
     InvalidCode(String),
     InvalidLength,
 }
-
+impl From<SimpleError> for PyErr {
+    fn from(error: SimpleError) -> Self {
+        match error {
+            SimpleError::CharacterNotFound(c, is_figure_mode) => PyValueError::new_err(format!(
+                "Character not found: '{}' (in {} mode)",
+                c,
+                if is_figure_mode { "figures" } else { "letters" }
+            )),
+            SimpleError::InvalidCode(code) => {
+                PyValueError::new_err(format!("Invalid code: {}", code))
+            }
+            SimpleError::InvalidLength => {
+                PyValueError::new_err("Binary string length must be multiple of 5")
+            }
+        }
+    }
+}
+#[pyclass]
 pub struct SimpleCCITT2 {
     // Maps characters to 5-bit codes (as binary strings)
     ltrs_map: HashMap<char, String>,
@@ -21,8 +39,9 @@ pub struct SimpleCCITT2 {
     ltrs_code: String, // Code to switch to letters mode
     figs_code: String, // Code to switch to figures mode
 }
-
+#[pymethods]
 impl SimpleCCITT2 {
+    #[new]
     pub fn new() -> Self {
         let mut codec = Self {
             ltrs_map: HashMap::new(),
@@ -37,6 +56,23 @@ impl SimpleCCITT2 {
         codec
     }
 
+    pub fn py_encode(&self, text: &str) -> PyResult<String> {
+        self.encode(text).map_err(PyErr::from)
+    }
+
+    pub fn py_decode(&self, binary: &str) -> PyResult<String> {
+        self.decode(binary).map_err(PyErr::from)
+    }
+
+    pub fn py_encode_to_bools(&self, text: &str) -> PyResult<Vec<bool>> {
+        self.encode_to_bools(text).map_err(PyErr::from)
+    }
+
+    pub fn py_decode_from_bools(&self, bools: Vec<bool>) -> PyResult<String> {
+        self.decode_from_bools(&bools).map_err(PyErr::from)
+    }
+}
+impl SimpleCCITT2 {
     //T-310 is used the ITA2- CCITT2 code
     // Mapping: https://scz.bplaced.net/t310-fs.html#t310-4
 
@@ -207,4 +243,11 @@ impl SimpleCCITT2 {
         let binary: String = bools.iter().map(|&b| if b { '1' } else { '0' }).collect();
         self.decode(&binary)
     }
+}
+
+#[pymodule]
+#[pyo3(name = "SimpleCCITT2")]
+fn simple_ccitt2(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<SimpleCCITT2>()?;
+    Ok(())
 }

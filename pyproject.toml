@@ -1,0 +1,19 @@
+[project]
+name = "T310"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.2.5",
+    "python-sat[aiger,approxmc,pblib]>=1.8.dev16",
+]
+
+
+[tool.maturin]
+python-source = "T310-SAT"
+module-name = "SimpleCCITT2"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
