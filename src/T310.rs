@@ -58,7 +58,9 @@ impl T310Cipher {
         }
     }
 
-
+    pub fn get_a(&self) -> [bool; 13] {
+        self.a.clone()
+    }
     #[rustfmt::skip]
     #[allow(dead_code)]
     pub fn z(&self, e1: bool, e2: bool, e3: bool, e4: bool, e5: bool, e6: bool) -> bool {
@@ -155,11 +157,11 @@ impl T310Cipher {
     }
 
     #[allow(dead_code)]
-    fn single_round(&mut self) {
+    pub fn single_round(&mut self) {
         let mut t_array = [false; 10];
         for outer_round in 0..12 {
             for inner_round in 0..126 {
-                //for inner_round in 0..2 {
+                //    for inner_round in 0..2 {
                 t_array[9] = t_array[8] ^ self.get_u(self.p[28 - 2] as usize - 1);
                 t_array[8] = t_array[7]
                     ^ self.z(

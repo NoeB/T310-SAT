@@ -5,11 +5,11 @@ use rustsat::{
 
 pub struct T310SAT {
     // Key components: two 120-bit sequences
-    s1: [bool; 120],
-    s2: [bool; 120],
+    s1: [Lit; 120],
+    s2: [Lit; 120],
 
     // Standard U-Vector: 37-bit register
-    u_vector: [bool; 37],
+    u_vector: [Lit; 37],
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
     f_vector: [Lit; 61],
 
@@ -19,7 +19,7 @@ pub struct T310SAT {
     // D function mapping {1,2,...9} to {0,1,...36}
     d: [u8; 9],
     alpha: u8,
-    a: [bool; 13],
+    a: [Lit; 13],
     sat_instance: SatInstance,
 }
 
@@ -54,23 +54,22 @@ impl T310SAT {
         */
         let mut sat_instance = SatInstance::new();
 
-        let iv_vars: Vec<Var> = iv.iter().map(|_| sat_instance.new_var()).collect();
-        let iv_lits: Vec<Lit> = iv_vars.iter().map(|&v| v.pos_lit()).collect();
-
-        for (bit, lit) in iv.iter().zip(iv_lits.iter()) {
-            let assigned_lit = if *bit { *lit } else { !*lit };
-            sat_instance.add_unit(assigned_lit);
-        }
-
+        let iv_lits = convert_to_lits(iv, &mut sat_instance);
+        let s1_lits = convert_to_lits(s1, &mut sat_instance);
+        let s2_lits = convert_to_lits(s2, &mut sat_instance);
+        let standard_u_vector_lits = convert_to_lits(&standard_u_vector, &mut sat_instance);
+        let a_lits = convert_to_lits(&a, &mut sat_instance);
         Self {
-            s1: s1.clone(),
-            s2: s2.clone(),
-            u_vector: standard_u_vector,
+            s1: s1_lits.try_into().expect("s1 must have 120 elements"),
+            s2: s2_lits.try_into().expect("s2 must have 120 elements"),
+            u_vector: standard_u_vector_lits
+                .try_into()
+                .expect("standard_u_vector_lits must have 37 elements"),
             f_vector: iv_lits.try_into().expect("IV must have 61 elements"),
             p,
             d,
             alpha,
-            a,
+            a: a_lits.try_into().expect("a lits must contain 13 elements"),
             sat_instance,
         }
     }
@@ -109,9 +108,11 @@ impl T310SAT {
         for clause in &clauses {
             let or_output = self.sat_instance.new_lit();
             self.sat_instance.add_clause_impl_lit(&clause, or_output);
+            self.sat_instance.add_lit_impl_clause(or_output, clause);
             or_clauses.push(or_output);
         }
         self.sat_instance.add_cube_impl_lit(&or_clauses, output);
+        self.sat_instance.add_lit_impl_cube(output, &or_clauses);
         output
     }
 
@@ -157,137 +158,165 @@ impl T310SAT {
         self.f_vector[0] = output;
         output
     }
-    /*
+
     //get the last bit of the s2 vector
     #[allow(dead_code)]
-    fn get_s2_bit(&self) -> bool {
+    fn get_s2_bit(&self) -> Lit {
         self.s2[119]
     }
     // get the last bit of the s2 vector
     #[allow(dead_code)]
-    fn get_s1_bit(&self) -> bool {
+    fn get_s1_bit(&self) -> Lit {
         self.s1[119]
     }
+    /*
 
-    fn shift_srv(srv: &mut [bool; 5]) {
-        let feedback_bit = srv[0] ^ srv[2];
-        srv.rotate_left(1);
-        srv[4] = feedback_bit;
-    }
-
-    pub fn encrypt_character_simple(&mut self, char: [bool; 5]) -> [bool; 5] {
-        self.single_round();
-        let srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
-
-        [
-            srv_2[0] ^ char[0],
-            srv_2[1] ^ char[1],
-            srv_2[2] ^ char[2],
-            srv_2[3] ^ char[3],
-            srv_2[4] ^ char[4],
-        ]
-    }
-
-    pub fn encrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
-        self.single_round();
-        let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
-        let mut srv_3: [bool; 5] = [true; 5];
-        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
-            Self::shift_srv(&mut srv_2);
-            Self::shift_srv(&mut srv_3);
+        fn shift_srv(srv: &mut [bool; 5]) {
+            let feedback_bit = srv[0] ^ srv[2];
+            srv.rotate_left(1);
+            srv[4] = feedback_bit;
         }
 
-        srv_2 = srv_3;
+        pub fn encrypt_character_simple(&mut self, char: [bool; 5]) -> [bool; 5] {
+            self.single_round();
+            let srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
 
-        let mut srv_3: [bool; 5] = [self.a[5], self.a[6], self.a[7], self.a[8], self.a[9]];
-        for i in 0..5 {
-            srv_3[i] ^= char[i];
+            [
+                srv_2[0] ^ char[0],
+                srv_2[1] ^ char[1],
+                srv_2[2] ^ char[2],
+                srv_2[3] ^ char[3],
+                srv_2[4] ^ char[4],
+            ]
         }
 
-        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
-            Self::shift_srv(&mut srv_2);
-            Self::shift_srv(&mut srv_3);
+        pub fn encrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
+            self.single_round();
+            let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
+            let mut srv_3: [bool; 5] = [true; 5];
+            while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
+                Self::shift_srv(&mut srv_2);
+                Self::shift_srv(&mut srv_3);
+            }
+
+            srv_2 = srv_3;
+
+            let mut srv_3: [bool; 5] = [self.a[5], self.a[6], self.a[7], self.a[8], self.a[9]];
+            for i in 0..5 {
+                srv_3[i] ^= char[i];
+            }
+
+            while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
+                Self::shift_srv(&mut srv_2);
+                Self::shift_srv(&mut srv_3);
+            }
+
+            srv_3
         }
 
-        srv_3
-    }
+        pub fn decrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
+            self.single_round();
+            let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
+            let mut srv_3: [bool; 5] = char;
+            while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
+                Self::shift_srv(&mut srv_2);
+                Self::shift_srv(&mut srv_3);
+            }
+            let keystream: [bool; 5] = [self.a[5], self.a[6], self.a[7], self.a[8], self.a[9]];
+            for i in 0..5 {
+                srv_3[i] ^= keystream[i];
+            }
 
-    pub fn decrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
-        self.single_round();
-        let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
-        let mut srv_3: [bool; 5] = char;
-        while !srv_2.iter().all(|&x| x == true) && !srv_2.iter().all(|&x| x == false) {
-            Self::shift_srv(&mut srv_2);
-            Self::shift_srv(&mut srv_3);
+            srv_3
         }
-        let keystream: [bool; 5] = [self.a[5], self.a[6], self.a[7], self.a[8], self.a[9]];
-        for i in 0..5 {
-            srv_3[i] ^= keystream[i];
-        }
-
-        srv_3
-    }
-
-    fn get_u(&self, p: usize) -> bool {
+    */
+    fn get_u(&self, p: usize) -> Lit {
         if p == 0 {
             return self.get_s1_bit();
         }
         self.u_vector[p]
     }
+    fn xor2(&mut self, a: Lit, b: Lit) -> Lit {
+        let output = self.sat_instance.new_lit();
+        //And(Or(t8, u28), Or(~t8, ~u28))
+
+        let clauses = vec![vec![a, b], vec![!a, !b]];
+        let mut or_clauses = vec![];
+        for clause in &clauses {
+            let or_output = self.sat_instance.new_lit();
+            self.sat_instance.add_clause_impl_lit(&clause, or_output);
+            self.sat_instance.add_lit_impl_clause(or_output, clause);
+            or_clauses.push(or_output);
+        }
+        self.sat_instance.add_cube_impl_lit(&or_clauses, output);
+        self.sat_instance.add_lit_impl_cube(output, &or_clauses);
+        output
+
+        /*
+            self.sat_instance.add_nary(&[output, a, b]); // (o ∨ a ∨ b)
+            self.sat_instance.add_nary(&[output, !a, !b]); // (o ∨ ¬a ∨ ¬b)
+            self.sat_instance.add_nary(&[!output, a, !b]); // (¬o ∨ a ∨ ¬b)
+            self.sat_instance.add_nary(&[!output, !a, b]);
+            output
+        */
+    }
 
     #[allow(dead_code)]
     fn single_round(&mut self) {
-        let mut t_array = [false; 10];
+        let mut t_array: [Lit; 10] = convert_to_lits(&[false; 10], &mut self.sat_instance)
+            .try_into()
+            .expect("t array must have 10 elements");
         for outer_round in 0..12 {
             for inner_round in 0..126 {
                 //for inner_round in 0..2 {
-                t_array[9] = t_array[8] ^ self.get_u(self.p[28 - 2] as usize - 1);
-                t_array[8] = t_array[7]
-                    ^ self.z(
-                        self.get_u(self.p[22 - 2] as usize - 1),
-                        self.get_u(self.p[23 - 2] as usize - 1),
-                        self.get_u(self.p[24 - 2] as usize - 1),
-                        self.get_u(self.p[25 - 2] as usize - 1),
-                        self.get_u(self.p[26 - 2] as usize - 1),
-                        self.get_u(self.p[27 - 2] as usize - 1),
-                    );
-                t_array[7] = (t_array[6] ^ self.get_u(self.p[21 - 2] as usize - 1));
-                t_array[6] = t_array[5]
-                    ^ self.z(
-                        self.get_u(self.p[15 - 2] as usize - 1),
-                        self.get_u(self.p[16 - 2] as usize - 1),
-                        self.get_u(self.p[17 - 2] as usize - 1),
-                        self.get_u(self.p[18 - 2] as usize - 1),
-                        self.get_u(self.p[19 - 2] as usize - 1),
-                        self.get_u(self.p[20 - 2] as usize - 1),
-                    );
-                t_array[5] = t_array[4] ^ self.get_u(self.p[14 - 2] as usize - 1);
-                t_array[4] = t_array[3]
-                    ^ self.z(
-                        self.get_u(self.p[8 - 2] as usize - 1),
-                        self.get_u(self.p[9 - 2] as usize - 1),
-                        self.get_u(self.p[10 - 2] as usize - 1),
-                        self.get_u(self.p[11 - 2] as usize - 1),
-                        self.get_u(self.p[12 - 2] as usize - 1),
-                        self.get_u(self.p[13 - 2] as usize - 1),
-                    );
-                t_array[3] = t_array[2] ^ self.get_u(self.p[7 - 2] as usize - 1);
-                t_array[2] = t_array[1]
-                    ^ self.z(
-                        self.get_s2_bit(),
-                        self.get_u(self.p[2 - 2] as usize - 1),
-                        self.get_u(self.p[3 - 2] as usize - 1),
-                        self.get_u(self.p[4 - 2] as usize - 1),
-                        self.get_u(self.p[5 - 2] as usize - 1),
-                        self.get_u(self.p[6 - 2] as usize - 1),
-                    );
+                t_array[9] = self.xor2(t_array[8], self.get_u(self.p[28 - 2] as usize - 1));
+                let z_9 = self.z(
+                    self.get_u(self.p[22 - 2] as usize - 1),
+                    self.get_u(self.p[23 - 2] as usize - 1),
+                    self.get_u(self.p[24 - 2] as usize - 1),
+                    self.get_u(self.p[25 - 2] as usize - 1),
+                    self.get_u(self.p[26 - 2] as usize - 1),
+                    self.get_u(self.p[27 - 2] as usize - 1),
+                );
+                t_array[8] = self.xor2(t_array[7], z_9);
+                t_array[7] = self.xor2(t_array[6], self.get_u(self.p[21 - 2] as usize - 1));
+                let z_6 = self.z(
+                    self.get_u(self.p[15 - 2] as usize - 1),
+                    self.get_u(self.p[16 - 2] as usize - 1),
+                    self.get_u(self.p[17 - 2] as usize - 1),
+                    self.get_u(self.p[18 - 2] as usize - 1),
+                    self.get_u(self.p[19 - 2] as usize - 1),
+                    self.get_u(self.p[20 - 2] as usize - 1),
+                );
+                t_array[6] = self.xor2(t_array[5], z_6);
+                t_array[5] = self.xor2(t_array[4], self.get_u(self.p[14 - 2] as usize - 1));
+                let z_4 = self.z(
+                    self.get_u(self.p[8 - 2] as usize - 1),
+                    self.get_u(self.p[9 - 2] as usize - 1),
+                    self.get_u(self.p[10 - 2] as usize - 1),
+                    self.get_u(self.p[11 - 2] as usize - 1),
+                    self.get_u(self.p[12 - 2] as usize - 1),
+                    self.get_u(self.p[13 - 2] as usize - 1),
+                );
+                t_array[4] = self.xor2(t_array[3], z_4);
+                t_array[3] = self.xor2(t_array[2], self.get_u(self.p[7 - 2] as usize - 1));
+                let z_2 = self.z(
+                    self.get_s2_bit(),
+                    self.get_u(self.p[2 - 2] as usize - 1),
+                    self.get_u(self.p[3 - 2] as usize - 1),
+                    self.get_u(self.p[4 - 2] as usize - 1),
+                    self.get_u(self.p[5 - 2] as usize - 1),
+                    self.get_u(self.p[6 - 2] as usize - 1),
+                );
+                t_array[2] = self.xor2(t_array[1], z_2);
                 t_array[1] = self.get_f_bit_and_rotate();
 
                 // Shift U vector right by one and insert 9 bits from T into U
                 self.u_vector.rotate_right(1);
                 let old_u = self.u_vector.clone();
                 for j in 1..10 {
-                    self.u_vector[4 * j - 3] = old_u[self.d[j - 1] as usize] ^ t_array[10 - j];
+                    self.u_vector[4 * j - 3] =
+                        self.xor2(old_u[self.d[j - 1] as usize], t_array[10 - j]);
                 }
                 let s1_bit = self.get_s1_bit();
                 self.u_vector[0] = s1_bit;
@@ -298,7 +327,17 @@ impl T310SAT {
             self.a[outer_round] = self.u_vector[self.alpha as usize - 1]
         }
     }
-    */
+}
+
+fn convert_to_lits(iv: &[bool], sat_instance: &mut SatInstance) -> Vec<Lit> {
+    let iv_vars: Vec<Var> = iv.iter().map(|_| sat_instance.new_var()).collect();
+    let iv_lits: Vec<Lit> = iv_vars.iter().map(|&v| v.pos_lit()).collect();
+
+    for (bit, lit) in iv.iter().zip(iv_lits.iter()) {
+        let assigned_lit = if *bit { *lit } else { !*lit };
+        sat_instance.add_unit(assigned_lit);
+    }
+    iv_lits
 }
 
 #[cfg(test)]
@@ -417,6 +456,89 @@ mod tests {
                 //println!("expected output {}", expected);
                 assert_eq!(sol[f_bit_out.var()], expected);
             }
+        }
+    }
+
+    #[test]
+    fn brute_force_test_single_round_function() {
+        for i in 0..500 {
+            let iv = random_bool_array_61(i);
+            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &iv);
+            let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
+            t310_sat.single_round();
+            t310.single_round();
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            let (cnf, vm) = t310_sat.sat_instance.clone().into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            assert_eq!(result, SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let expected_a: Vec<TernaryVal> = t310
+                .get_a()
+                .iter()
+                .map(|&b| match b {
+                    true => TernaryVal::True,
+                    false => TernaryVal::False,
+                })
+                .collect();
+            let sat_output: Vec<TernaryVal> = t310_sat.a.iter().map(|i| sol[i.var()]).collect();
+            //println!("expected a: {:?}", expected_a);
+            //println!("sat a {:?}", sat_output);
+            assert_eq!(sat_output, expected_a);
+        }
+    }
+    #[test]
+    fn test_xor2() {
+        let cases = [(false, false), (false, true), (true, false), (true, true)];
+
+        for &(a_val, b_val) in &cases {
+            let expected_bool = a_val ^ b_val;
+            let expected_bool2 = expected_bool ^ b_val;
+            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &[false; 61]);
+            let a_var = t310_sat.sat_instance.new_var();
+            let b_var = t310_sat.sat_instance.new_var();
+            let a_lit = a_var.pos_lit();
+            let b_lit = b_var.pos_lit();
+
+            // Assign values to a and b
+            t310_sat
+                .sat_instance
+                .add_unit(if a_val { a_lit } else { !a_lit });
+            t310_sat
+                .sat_instance
+                .add_unit(if b_val { b_lit } else { !b_lit });
+
+            let out: Lit = t310_sat.xor2(a_lit, b_lit);
+            let out2 = t310_sat.xor2(out, b_lit);
+
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            assert_eq!(result, rustsat::solvers::SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let out_val = sol[out.var()];
+            let out_val2 = sol[out2.var()];
+            let expected = if expected_bool {
+                rustsat::types::TernaryVal::True
+            } else {
+                rustsat::types::TernaryVal::False
+            };
+            let expected2 = if expected_bool2 {
+                rustsat::types::TernaryVal::True
+            } else {
+                rustsat::types::TernaryVal::False
+            };
+            assert_eq!(out_val, expected, "xor2({a_val}, {b_val}) failed");
+            assert_eq!(out_val2, expected2, "xor2({expected_bool}, {b_val}) failed");
         }
     }
 }
