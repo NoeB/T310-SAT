@@ -1,6 +1,6 @@
 use rustsat::{
     instances::SatInstance,
-    types::{Clause, Lit},
+    types::{Clause, Lit, Var},
 };
 
 pub struct T310SAT {
@@ -11,7 +11,7 @@ pub struct T310SAT {
     // Standard U-Vector: 37-bit register
     u_vector: [bool; 37],
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
-    f_vector: [bool; 61],
+    f_vector: [Lit; 61],
 
     //Long Term Key
     // P function mapping {1,2,...27} to {1,...36}
@@ -52,12 +52,21 @@ impl T310SAT {
         println!("standard_u_vector: {:?}", standard_u_vector);
         println!("iv_bitvec: {:?}", iv);
         */
-        let sat_instance = SatInstance::new();
+        let mut sat_instance = SatInstance::new();
+
+        let iv_vars: Vec<Var> = iv.iter().map(|_| sat_instance.new_var()).collect();
+        let iv_lits: Vec<Lit> = iv_vars.iter().map(|&v| v.pos_lit()).collect();
+
+        for (bit, lit) in iv.iter().zip(iv_lits.iter()) {
+            let assigned_lit = if *bit { *lit } else { !*lit };
+            sat_instance.add_unit(assigned_lit);
+        }
+
         Self {
             s1: s1.clone(),
             s2: s2.clone(),
             u_vector: standard_u_vector,
-            f_vector: iv.clone(),
+            f_vector: iv_lits.try_into().expect("IV must have 61 elements"),
             p,
             d,
             alpha,
@@ -105,15 +114,50 @@ impl T310SAT {
         self.sat_instance.add_cube_impl_lit(&or_clauses, output);
         output
     }
-    /*
-    #[allow(dead_code)]
-    fn get_f_bit_and_rotate(&mut self) -> bool {
-        let new_bit = self.f_vector[0] ^ self.f_vector[1] ^ self.f_vector[2] ^ self.f_vector[5];
-        self.f_vector.rotate_right(1);
-        self.f_vector[0] = new_bit;
-        return new_bit;
-    }
 
+    #[allow(dead_code)]
+    fn get_f_bit_and_rotate(&mut self) -> Lit {
+        let output = self.sat_instance.new_lit();
+        let f0 = self.f_vector[0];
+        let f1 = self.f_vector[1];
+        let f2 = self.f_vector[2];
+        let f5 = self.f_vector[5];
+
+        /*
+        And(
+            Or(f0, f1, !f2, !f5),
+            Or(!f0, !f1, !f2, !f5),
+            Or(f0, !f1, f2, !f5),
+            Or(!f0, f1, f2, !f5),
+            Or(f0, !f1, !f2, f5),
+            Or(!f0, f1, !f2, f5),
+            Or(f0, f1, f2, f5),
+            Or(!f0, !f1, f2, f5))
+        */
+        let clauses = vec![
+            vec![f0, f1, !f2, !f5],
+            vec![!f0, !f1, !f2, !f5],
+            vec![f0, !f1, f2, !f5],
+            vec![!f0, f1, f2, !f5],
+            vec![f0, !f1, !f2, f5],
+            vec![!f0, f1, !f2, f5],
+            vec![f0, f1, f2, f5],
+            vec![!f0, !f1, f2, f5],
+        ];
+        let mut or_clauses = vec![];
+        for clause in &clauses {
+            let or_output = self.sat_instance.new_lit();
+            self.sat_instance.add_clause_impl_lit(&clause, or_output);
+            self.sat_instance.add_lit_impl_clause(or_output, clause);
+            or_clauses.push(or_output);
+        }
+        self.sat_instance.add_cube_impl_lit(&or_clauses, output);
+        self.sat_instance.add_lit_impl_cube(output, &or_clauses);
+        self.f_vector.rotate_right(1);
+        self.f_vector[0] = output;
+        output
+    }
+    /*
     //get the last bit of the s2 vector
     #[allow(dead_code)]
     fn get_s2_bit(&self) -> bool {
@@ -259,9 +303,11 @@ impl T310SAT {
 
 #[cfg(test)]
 mod tests {
+
     use crate::T310::T310Cipher;
 
     use super::*;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use rustsat::instances::ManageVars;
     use rustsat::solvers::{Solve, SolverResult};
     use rustsat::types::{Lit, TernaryVal, Var};
@@ -331,6 +377,46 @@ mod tests {
             assert_eq!(sol[z_out.var()], expected);
 
             println!("---------------")
+        }
+    }
+
+    fn random_bool_array_61(seed: u64) -> [bool; 61] {
+        let mut arr = [false; 61];
+        let mut rng = StdRng::seed_from_u64(seed);
+        for i in 0..61 {
+            arr[i] = rng.random();
+        }
+        arr
+    }
+
+    #[test]
+    fn brute_force_test_f_bit_function() {
+        for i in 0..5000 {
+            let iv = random_bool_array_61(i);
+            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &iv);
+            let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
+            //println!("------");
+            for _round in 0..100 {
+                let f_bit_out = t310_sat.get_f_bit_and_rotate();
+                let mut solver = rustsat_cadical::CaDiCaL::default();
+                let (cnf, vm) = t310_sat.sat_instance.clone().into_cnf();
+                if let Some(max_var) = vm.max_var() {
+                    solver.reserve(max_var).unwrap();
+                }
+                solver.add_cnf(cnf).unwrap();
+
+                let result = solver.solve().expect("SAT expected");
+                assert_eq!(result, SolverResult::Sat);
+                let sol = solver.full_solution().unwrap();
+                //println!("output sat: {}", sol[f_bit_out.var()]);
+                let expected: TernaryVal = match t310.get_f_bit_and_rotate() {
+                    true => TernaryVal::True,
+                    false => TernaryVal::False,
+                };
+
+                //println!("expected output {}", expected);
+                assert_eq!(sol[f_bit_out.var()], expected);
+            }
         }
     }
 }

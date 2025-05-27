@@ -70,7 +70,7 @@ impl T310Cipher {
         result
     }
     #[allow(dead_code)]
-    fn get_f_bit_and_rotate(&mut self) -> bool {
+    pub fn get_f_bit_and_rotate(&mut self) -> bool {
         let new_bit = self.f_vector[0] ^ self.f_vector[1] ^ self.f_vector[2] ^ self.f_vector[5];
         self.f_vector.rotate_right(1);
         self.f_vector[0] = new_bit;
