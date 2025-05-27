@@ -1,4 +1,9 @@
-pub struct T310Cipher {
+use rustsat::{
+    instances::SatInstance,
+    types::{Clause, Lit},
+};
+
+pub struct T310SAT {
     // Key components: two 120-bit sequences
     s1: [bool; 120],
     s2: [bool; 120],
@@ -15,9 +20,10 @@ pub struct T310Cipher {
     d: [u8; 9],
     alpha: u8,
     a: [bool; 13],
+    sat_instance: SatInstance,
 }
 
-impl T310Cipher {
+impl T310SAT {
     pub fn new(s1: &[bool; 120], s2: &[bool; 120], iv: &[bool; 61]) -> Self {
         // Validate the key components
 
@@ -46,6 +52,7 @@ impl T310Cipher {
         println!("standard_u_vector: {:?}", standard_u_vector);
         println!("iv_bitvec: {:?}", iv);
         */
+        let sat_instance = SatInstance::new();
         Self {
             s1: s1.clone(),
             s2: s2.clone(),
@@ -55,20 +62,50 @@ impl T310Cipher {
             d,
             alpha,
             a,
+            sat_instance,
         }
     }
 
-
-    #[rustfmt::skip]
     #[allow(dead_code)]
-    pub fn z(&self, e1: bool, e2: bool, e3: bool, e4: bool, e5: bool, e6: bool) -> bool {
-        let mut result = e1 ^ e5 ^ e6 ^ (e1 & e4) ^ (e2 & e3) ^ (e2 & e5) ^ (e4 & e5) ^ (e5 & e6);
-        result ^= (e1 & e3 & e4) ^ (e1 & e3 & e6) ^ (e1 & e4 & e5) ^ (e2 & e3 & e6) ^ (e2 & e4 & e6) ^ (e3 & e5 & e6);
-        result ^= (e1 & e2 & e3 & e4) ^(e1 & e2 & e3 & e5) ^ (e1 & e2 & e5 & e6) ^ (e2 & e3 & e4 & e6) ^(e1 & e2 & e3 & e4 & e5);
-        result ^= (e1 & e3 & e4 & e5 & e6);
+    fn z(&mut self, e1: Lit, e2: Lit, e3: Lit, e4: Lit, e5: Lit, e6: Lit) -> Lit {
+        let output = self.sat_instance.new_lit();
 
-        result
+        let clauses = vec![
+            vec![e1, e2, !e3, e4, !e5, !e6],
+            vec![e1, !e2, e3, !e4, !e5, !e6],
+            vec![e1, !e2, e3, !e4, e5, !e6],
+            vec![!e1, !e2, e3, !e4, e5, !e6],
+            vec![!e1, !e2, e3, !e4, !e5, e6],
+            vec![e1, e2, e3, !e4, !e5, !e6],
+            vec![e1, e2, e5, e6],
+            vec![e1, e2, !e4, !e5, e6],
+            vec![e1, e3, e5, e6],
+            vec![e1, !e2, e3, e4, !e5, e6],
+            vec![e1, !e2, !e3, !e4, !e5, e6],
+            vec![!e1, e3, e4, e5, !e6],
+            vec![e1, !e2, e3, e4, !e5, !e6],
+            vec![!e1, e2, e3, e4, !e5, !e6],
+            vec![!e1, e3, !e4, e5, e6],
+            vec![!e1, !e2, !e3, e4, e5, e6],
+            vec![!e1, e2, e4, !e5, e6],
+            vec![!e1, e2, !e3, !e4, !e5, e6],
+            vec![!e1, !e2, !e3, !e4, e5, !e6],
+            vec![!e1, e2, !e3, e4, !e5, !e6],
+            vec![e1, !e2, !e3, !e4, !e5, !e6],
+            vec![!e1, !e2, e3, e4, !e5, !e6],
+            vec![!e1, !e2, e3, !e4, !e5, !e6],
+            vec![!e1, !e2, !e3, !e4, !e5, !e6],
+        ];
+        let mut or_clauses = vec![];
+        for clause in &clauses {
+            let or_output = self.sat_instance.new_lit();
+            self.sat_instance.add_clause_impl_lit(&clause, or_output);
+            or_clauses.push(or_output);
+        }
+        self.sat_instance.add_cube_impl_lit(&or_clauses, output);
+        output
     }
+    /*
     #[allow(dead_code)]
     fn get_f_bit_and_rotate(&mut self) -> bool {
         let new_bit = self.f_vector[0] ^ self.f_vector[1] ^ self.f_vector[2] ^ self.f_vector[5];
@@ -215,6 +252,85 @@ impl T310Cipher {
                 self.s2.rotate_right(1);
             }
             self.a[outer_round] = self.u_vector[self.alpha as usize - 1]
+        }
+    }
+    */
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::T310::T310Cipher;
+
+    use super::*;
+    use rustsat::instances::ManageVars;
+    use rustsat::solvers::{Solve, SolverResult};
+    use rustsat::types::{Lit, TernaryVal, Var};
+
+    #[test]
+    fn brute_force_test_z_function() {
+        for i in 0..64 {
+            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &[false; 61]);
+            let t310 = T310Cipher::new(&[false; 120], &[false; 120], &[false; 61]);
+
+            let input_bits: [bool; 6] = [
+                (i & 0b000001) != 0,
+                (i & 0b000010) != 0,
+                (i & 0b000100) != 0,
+                (i & 0b001000) != 0,
+                (i & 0b010000) != 0,
+                (i & 0b100000) != 0,
+            ];
+
+            // Create SAT vars for e1..e6
+            let vars: Vec<Var> = (0..6).map(|_| t310_sat.sat_instance.new_var()).collect();
+            let lits: Vec<Lit> = vars.iter().map(|&v| v.pos_lit()).collect();
+
+            // Force values of inputs
+            for (bit, lit) in input_bits.iter().zip(lits.iter()) {
+                let assigned_lit = if *bit { *lit } else { !*lit };
+                t310_sat.sat_instance.add_unit(assigned_lit);
+            }
+
+            // Call z function with fixed literals
+            let z_out = t310_sat.z(lits[0], lits[1], lits[2], lits[3], lits[4], lits[5]);
+
+            // Now solve the CNF to get value of z_out
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            assert_eq!(result, SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            println!("output sat: {}", sol[z_out.var()]);
+            println!(
+                "real z output: {:?}",
+                t310.z(
+                    input_bits[0],
+                    input_bits[1],
+                    input_bits[2],
+                    input_bits[3],
+                    input_bits[4],
+                    input_bits[5]
+                )
+            );
+            let expected: TernaryVal = match t310.z(
+                input_bits[0],
+                input_bits[1],
+                input_bits[2],
+                input_bits[3],
+                input_bits[4],
+                input_bits[5],
+            ) {
+                true => TernaryVal::True,
+                false => TernaryVal::False,
+            };
+            assert_eq!(sol[z_out.var()], expected);
+
+            println!("---------------")
         }
     }
 }

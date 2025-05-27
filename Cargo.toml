@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bitvec = "1.0.1"
 rand = "0.9.0"
+## Needed until a relase is cut with this change included: https://github.com/chrjabs/rustsat/pull/373
+#rustsat = "0.7.1"
+#rustsat-cadical = "0.7.1"
+rustsat = {git= "https://github.com/chrjabs/rustsat.git"}
+rustsat-cadical = {git= "https://github.com/chrjabs/rustsat.git"}
 thiserror = "2.0.12"
 
 

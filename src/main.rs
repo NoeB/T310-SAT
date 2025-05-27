@@ -1,8 +1,7 @@
 mod CCITT2;
 mod T310;
-
+mod T310SAT;
 use CCITT2::{SimpleCCITT2, SimpleError};
-use bitvec::prelude::*;
 
 use T310::T310Cipher;
 use rand::{Rng, SeedableRng, rngs::StdRng};
