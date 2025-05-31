@@ -93,7 +93,7 @@ impl T310SAT {
             }
         };
 
-        Self {
+        let mut instance = Self {
             initial_s1,
             s1: s1_lits,
             initial_s2,
@@ -108,7 +108,45 @@ impl T310SAT {
             alpha,
             a: a_lits.try_into().expect("a lits must contain 13 elements"),
             sat_instance,
+        };
+        // S1 and S2 Paritiy bits encdoding
+        /*
+
+           This means that the secret key consists of 240 bits.
+           10 of the bits are not effective,
+           as the following equation must hold for i= 1...5 and j= 1,2: s24(i-1)+1,j + s24(i-1)+2,j+ ... + s24(i-1)+24,j = 1
+        from
+        Schmeh, K. (2006). The East German Encryption Machine T-310 and the Algorithm It Used. Cryptologia, 30(3), 251–257. https://doi.org/10.1080/01611190600632457
+        */
+        for i in 0..5 {
+            let start_idx = i * 24;
+            let end_idx = start_idx + 24;
+
+            // Collect the 24 bits for this group
+            let group_bits_s1: Vec<Lit> = instance.s1[start_idx..end_idx].to_vec();
+            let group_bits_s2: Vec<Lit> = instance.s2[start_idx..end_idx].to_vec();
+
+            // Add constraint that XOR of all bits = 1 (odd parity)
+            instance.add_odd_parity_constraint(&group_bits_s1);
+            instance.add_odd_parity_constraint(&group_bits_s2);
         }
+
+        instance
+    }
+
+    fn add_odd_parity_constraint(&mut self, bits: &[Lit]) {
+        if bits.is_empty() {
+            return;
+        }
+        // XOR all bits together
+        let mut xor_result = bits[0];
+
+        for i in 1..bits.len() {
+            xor_result = self.xor2(xor_result, bits[i]);
+        }
+
+        // Assert that XOR result is true (odd parity)
+        self.sat_instance.add_unit(xor_result);
     }
 
     #[allow(dead_code)]
@@ -456,12 +494,53 @@ mod tests {
     use rustsat::solvers::{self, Solve, SolveStats, SolverResult};
     use rustsat::types::{Lit, TernaryVal, Var};
 
+    pub fn generate_random_key(seed: u64) -> ([bool; 120], [bool; 120]) {
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Create two arrays with 120 bits each
+        let mut s1 = [false; 120];
+        let mut s2 = [false; 120];
+
+        // Generate random bits
+        for i in 0..120 {
+            s1[i] = rng.random_bool(0.5);
+            s2[i] = rng.random_bool(0.5);
+        }
+
+        // Ensure parity requirement is met (each 24-bit block must have odd parity)
+        for i in 0..5 {
+            let block_start = i * 24;
+            let block_end = block_start + 24;
+
+            // Calculate parity for each block
+            let mut s1_parity = false;
+            let mut s2_parity = false;
+
+            for j in block_start..block_end {
+                s1_parity ^= s1[j];
+                s2_parity ^= s2[j];
+            }
+
+            // If even parity (false), flip the last bit in the block to make it odd
+            if !s1_parity {
+                let last_bit_index = block_start + 23;
+                s1[last_bit_index] = !s1[last_bit_index];
+            }
+
+            if !s2_parity {
+                let last_bit_index = block_start + 23;
+                s2[last_bit_index] = !s2[last_bit_index];
+            }
+        }
+
+        (s1, s2)
+    }
     #[test]
     fn brute_force_test_z_function() {
         for i in 0..64 {
-            let mut t310_sat =
-                T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&[false; 61]));
-            let t310 = T310Cipher::new(&[false; 120], &[false; 120], &[false; 61]);
+            let (s1, s2) = generate_random_key(i);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&[false; 61]));
+            let t310 = T310Cipher::new(&s1, &s2, &[false; 61]).expect("valid keys");
 
             let input_bits: [bool; 6] = [
                 (i & 0b000001) != 0,
@@ -545,9 +624,10 @@ mod tests {
     #[test]
     fn brute_force_test_f_bit_function() {
         for i in 0..5000 {
+            let (s1, s2) = generate_random_key(i);
             let iv = random_bool_array_61(i);
-            let mut t310_sat = T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&iv));
-            let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&iv));
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             //println!("------");
             for _round in 0..100 {
                 let f_bit_out = t310_sat.get_f_bit_and_rotate();
@@ -578,8 +658,9 @@ mod tests {
         let start = std::time::Instant::now();
         for i in 0..500 {
             let iv = random_bool_array_61(i);
-            let mut t310_sat = T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&iv));
-            let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
+            let (s1, s2) = generate_random_key(i);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&iv));
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             t310_sat.single_round();
             t310.single_round();
             let mut solver = rustsat_cadical::CaDiCaL::default();
@@ -621,8 +702,8 @@ mod tests {
         for &(a_val, b_val) in &cases {
             let expected_bool = a_val ^ b_val;
             let expected_bool2 = expected_bool ^ b_val;
-            let mut t310_sat =
-                T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&[false; 61]));
+            let (s1, s2) = generate_random_key(1);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&[false; 61]));
             let a_var = t310_sat.sat_instance.new_var();
             let b_var = t310_sat.sat_instance.new_var();
             let a_lit = a_var.pos_lit();
@@ -677,9 +758,9 @@ mod tests {
         for i in 0..10 {
             let codec = SimpleCCITT2::new();
             let iv = random_bool_array_61(i);
-            let s1 = random_bool_array_120(i);
-            let mut t310_sat = T310SAT::new(Some(&s1), Some(&[false; 120]), Some(&iv));
-            let mut t310 = T310Cipher::new(&s1, &[false; 120], &iv);
+            let (s1, s2) = generate_random_key(i);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&iv));
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             let text = "HELLO";
             let bool_array = codec
                 .encode_to_bools(text)
@@ -719,9 +800,9 @@ mod tests {
         for i in 0..10 {
             let codec = SimpleCCITT2::new();
             let iv = random_bool_array_61(i);
-            let s1 = random_bool_array_120(i);
-            let mut t310_sat = T310SAT::new(Some(&s1), Some(&[false; 120]), Some(&iv));
-            let mut t310 = T310Cipher::new(&s1, &[false; 120], &iv);
+            let (s1, s2) = generate_random_key(i);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), Some(&iv));
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             let text = "HELLO";
             let bool_array = codec
                 .encode_to_bools(text)
@@ -783,10 +864,9 @@ mod tests {
         for i in 0..1 {
             let codec = SimpleCCITT2::new();
             let iv: [bool; 61] = random_bool_array_61(i);
-            let s1 = random_bool_array_120(i);
-            let s2 = random_bool_array_120(i + 1000);
+            let (s1, s2) = generate_random_key(i);
             let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), None);
-            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             let text = "HELLO Test Encryption";
             let bool_array = codec
                 .encode_to_bools(text)
@@ -864,10 +944,9 @@ mod tests {
         for i in 0..1 {
             let codec = SimpleCCITT2::new();
             let iv: [bool; 61] = random_bool_array_61(i);
-            let s1 = random_bool_array_120(i);
-            let s2 = random_bool_array_120(i + 1000);
+            let (s1, s2) = generate_random_key(i);
             let mut t310_sat = T310SAT::new(Some(&s1), None, None);
-            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             let text = "HEY";
             let bool_array = codec
                 .encode_to_bools(text)
@@ -961,7 +1040,7 @@ mod tests {
             let s1 = random_bool_array_120(i);
             let s2 = random_bool_array_120(i + 1000);
             let mut t310_sat = T310SAT::new(None, None, None);
-            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
             let text = "HEY";
             let bool_array = codec
                 .encode_to_bools(text)

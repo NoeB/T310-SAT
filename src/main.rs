@@ -6,8 +6,8 @@ use CCITT2::{SimpleCCITT2, SimpleError};
 use T310::T310Cipher;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-pub fn generate_random_key() -> ([bool; 120], [bool; 120]) {
-    let mut rng = StdRng::seed_from_u64(123456);
+pub fn generate_random_key(seed: u64) -> ([bool; 120], [bool; 120]) {
+    let mut rng = StdRng::seed_from_u64(seed);
 
     // Create two arrays with 120 bits each
     let mut s1 = [false; 120];
@@ -89,12 +89,12 @@ fn main() -> Result<(), SimpleError> {
     let from_bools = codec.decode_from_bools(&bool_array)?;
     println!("From bools: {}", from_bools);
 
-    let (s1, s2) = generate_random_key();
+    let (s1, s2) = generate_random_key(123456);
     let iv = generate_random_iv();
 
     // Create cipher
-    let mut cipher = T310Cipher::new(&s1, &s2, &iv);
-    let mut cipher_clone = T310Cipher::new(&s1, &s2, &iv);
+    let mut cipher = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
+    let mut cipher_clone = T310Cipher::new(&s1, &s2, &iv).expect("valid keys");
     let mut encrypted: Vec<bool> = vec![];
     for chunk in bool_array.chunks(5) {
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
@@ -121,39 +121,47 @@ fn main() -> Result<(), SimpleError> {
     // Compare SAT output if correect
 
     let s1_test = [
-        false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, false, false, false, true, false, true, false, false, false, true, false, false,
-        false, false, true, true, true, true, false, false, true, false, true, true, false, true,
-        false, false, true, true, false, true, true, true, true, false, true, false, false, true,
-        true, false, false, true, true, false, true, true, false, false, true, true, false, true,
-        true, true, true, true, true, true, false, true, true, true, true, true, false, false,
-        true, true, true, true, true, true, false, true, false, false, true, true, true, true,
-        true, false, true, true, true, false, false, false, true, false, false, false, false, true,
-        true, true, true, false, false, false, true, false, false, false,
+        false, true, true, true, false, false, true, true, true, true, true, true, false, false,
+        true, true, false, true, false, false, true, false, false, false, false, true, false,
+        false, true, true, true, false, true, true, false, true, true, false, false, false, false,
+        false, true, false, true, false, true, false, true, true, false, true, false, true, false,
+        false, true, true, false, true, true, false, false, false, true, true, false, false, true,
+        true, true, false, true, true, true, true, false, true, false, false, false, false, true,
+        false, true, false, true, false, true, false, true, true, false, true, false, true, true,
+        true, true, true, false, true, true, false, false, false, true, false, false, false, false,
+        false, true, true, true, true, true, true, true, true,
     ];
     let s2_test: [bool; 120] = [
-        false, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, false, false, false, false, false, false, true, true, true, true, false, false,
-        true, false, false, false, true, true, false, false, true, false, false, true, false, true,
-        false, false, false, true, true, true, true, false, true, false, true, false, true, true,
-        false, true, false, true, false, false, false, true, true, true, false, false, true, false,
-        true, false, true, false, false, false, false, false, false, false, true, true, false,
-        true, false, true, true, false, false, false, true, true, false, true, true, false, true,
-        false, true, true, true, true, false, true, false, true, false, false, false, false, true,
-        true, false, false, true, true, true, true, true, false, false, false,
+        true, false, false, false, true, true, false, false, true, false, false, true, true, true,
+        false, false, true, false, false, true, true, false, false, true, true, true, true, true,
+        true, false, false, false, false, false, false, true, true, false, false, true, true,
+        false, false, true, false, true, false, false, false, false, true, false, true, true,
+        false, true, true, false, false, false, false, false, false, false, false, true, true,
+        false, false, false, false, false, true, false, false, true, true, true, false, true,
+        false, false, false, false, false, true, true, true, true, true, false, true, false, false,
+        true, true, false, false, false, true, false, false, false, false, true, true, false, true,
+        false, false, true, false, true, true, false, false, false, true, false, true,
+    ];
+    let iv_test_1 = [
+        true, true, true, true, true, false, true, true, true, false, false, true, false, false,
+        true, true, true, true, true, true, true, true, false, false, false, false, true, true,
+        false, false, false, false, true, false, false, true, true, false, false, true, true,
+        false, true, true, false, false, false, true, true, true, true, false, false, true, true,
+        true, true, false, true, true, false,
     ];
     let iv_test = [
-        true, false, false, false, true, false, false, false, false, false, false, false, false,
+        false, false, true, false, true, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false,
     ];
 
-    let mut cipher_clone = T310Cipher::new(&s1_test, &s2_test, &iv_test);
-
+    let mut cipher_clone = T310Cipher::new(&s1_test, &s2_test, &iv_test).expect("valid keys");
+    let text2 = "HEY";
+    let bool_array2 = codec.encode_to_bools(text2)?;
     let mut encrypted: Vec<bool> = vec![];
-    for chunk in bool_array.chunks(5) {
+    for chunk in bool_array2.chunks(5) {
         let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
         //encrypted.extend_from_slice(&cipher.encrypt_character(chunk_array));
         encrypted.extend_from_slice(&cipher_clone.encrypt_character_simple(chunk_array));

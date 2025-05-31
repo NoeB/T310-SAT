@@ -19,12 +19,32 @@ pub struct T310Cipher {
 }
 
 impl T310Cipher {
-    pub fn new(s1: &[bool; 120], s2: &[bool; 120], iv: &[bool; 61]) -> Self {
+    pub fn new(s1: &[bool; 120], s2: &[bool; 120], iv: &[bool; 61]) -> Result<Self, String> {
         // Validate the key components
 
         //assert!(iv != 0, "IV must not be all zeros");
 
         // Convert IV to BitVec
+
+        //validate s1 and s2
+        for array in [s1, s2] {
+            // Check each of the 5 groups of 24 bits
+            for i in 0..5 {
+                let start_idx = i * 24;
+                let end_idx = start_idx + 24;
+
+                // Sum the 24 bits in this group
+                let sum: u32 = array[start_idx..end_idx]
+                    .iter()
+                    .map(|&bit| if bit { 1 } else { 0 })
+                    .sum();
+
+                // Check if sum is odd (must equal 1 mod 2)
+                if sum % 2 == 0 {
+                    return Err("Not valid parity".to_string());
+                }
+            }
+        }
 
         // Initialize with the standard U-Vector
         let standard_u_vector: [bool; 36] = [
@@ -41,13 +61,14 @@ impl T310Cipher {
         let d: [u8; 9] = [0, 15, 3, 23, 11, 27, 31, 35, 19];
         let alpha: u8 = 2; // {1,2,3,...36}
         let a = [false; 13];
-        /*
+
         println!("s1: {:?}", s1);
         println!("s2: {:?}", s2);
+        /*
         println!("standard_u_vector: {:?}", standard_u_vector);
         println!("iv_bitvec: {:?}", iv);
         */
-        Self {
+        Ok(Self {
             s1: s1.clone(),
             s2: s2.clone(),
             u_vector: standard_u_vector,
@@ -56,7 +77,7 @@ impl T310Cipher {
             d,
             alpha,
             a,
-        }
+        })
     }
 
     pub fn get_a(&self) -> [bool; 13] {
