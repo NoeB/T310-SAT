@@ -28,48 +28,81 @@ pub struct T310SAT {
 }
 
 impl T310SAT {
-    pub fn new(s1: &[bool; 120], s2: &[bool; 120], iv: &[bool; 61]) -> Self {
-        // Validate the key components
-
-        //assert!(iv != 0, "IV must not be all zeros");
-
-        // Convert IV to BitVec
-
-        // Initialize with the standard U-Vector
-        let standard_u_vector: [bool; 37] = [
+    pub fn new(
+        s1: Option<&[bool; 120]>,
+        s2: Option<&[bool; 120]>,
+        iv: Option<&[bool; 61]>,
+    ) -> Self {
+        let standard_u_vector: [bool; 36] = [
             false, true, true, false, true, false, false, true, true, true, false, false, false,
             true, true, true, true, true, false, false, true, false, false, false, false, true,
-            false, true, true, false, true, false, false, false, true, true, false,
+            false, true, true, false, true, false, false, false, true, true,
         ];
 
-        // Longterm Key LZS-31 approved ()
         let p: [u8; 27] = [
             7, 4, 33, 30, 18, 36, 5, 35, 9, 16, 23, 26, 32, 12, 21, 1, 13, 25, 20, 8, 24, 15, 22,
             29, 10, 28, 6,
         ];
         let d: [u8; 9] = [0, 15, 3, 23, 11, 27, 31, 35, 19];
-        let alpha: u8 = 2; // {1,2,3,...36}
+        let alpha: u8 = 2;
         let a = [false; 13];
-        /*
-        println!("s1: {:?}", s1);
-        println!("s2: {:?}", s2);
-        println!("standard_u_vector: {:?}", standard_u_vector);
-        println!("iv_bitvec: {:?}", iv);
-        */
-        let mut sat_instance = SatInstance::new();
 
-        let iv_lits = convert_to_lits(iv, &mut sat_instance);
-        let s1_lits = convert_to_lits(s1, &mut sat_instance);
-        let s2_lits = convert_to_lits(s2, &mut sat_instance);
+        let mut sat_instance = SatInstance::new();
         let standard_u_vector_lits = convert_to_lits(&standard_u_vector, &mut sat_instance);
         let a_lits = convert_to_lits(&a, &mut sat_instance);
+
+        // Handle IV
+        let (iv_lits, initial_iv) = match iv {
+            Some(iv_values) => {
+                let lits = convert_to_lits(iv_values, &mut sat_instance);
+                (
+                    lits.clone().try_into().expect("IV must have 61 elements"),
+                    lits.try_into().expect("IV must have 61 elements"),
+                )
+            }
+            None => {
+                let lits: [Lit; 61] = std::array::from_fn(|_| sat_instance.new_lit());
+                sat_instance.add_nary(&lits.to_vec()); // At least 1 must be 1
+                (lits, lits)
+            }
+        };
+
+        // Handle S1
+        let (s1_lits, initial_s1) = match s1 {
+            Some(s1_values) => {
+                let lits = convert_to_lits(s1_values, &mut sat_instance);
+                let arr: [Lit; 120] = lits.try_into().expect("s1 must have 120 elements");
+                (arr, arr.clone())
+            }
+            None => {
+                let lits: [Lit; 120] = std::array::from_fn(|_| sat_instance.new_lit());
+                (lits, lits.clone())
+            }
+        };
+
+        // Handle S2
+        let (s2_lits, initial_s2) = match s2 {
+            Some(s2_values) => {
+                let lits = convert_to_lits(s2_values, &mut sat_instance);
+                let arr: [Lit; 120] = lits.try_into().expect("s2 must have 120 elements");
+                (arr, arr.clone())
+            }
+            None => {
+                let lits: [Lit; 120] = std::array::from_fn(|_| sat_instance.new_lit());
+                (lits, lits.clone())
+            }
+        };
+
         Self {
-            s1: s1_lits.try_into().expect("s1 must have 120 elements"),
-            s2: s2_lits.try_into().expect("s2 must have 120 elements"),
+            initial_s1,
+            s1: s1_lits,
+            initial_s2,
+            s2: s2_lits,
             u_vector: standard_u_vector_lits
                 .try_into()
-                .expect("standard_u_vector_lits must have 37 elements"),
-            f_vector: iv_lits.try_into().expect("IV must have 61 elements"),
+                .expect("standard_u_vector_lits must have 36 elements"),
+            f_vector: iv_lits.clone(),
+            initial_iv,
             p,
             d,
             alpha,
@@ -412,19 +445,22 @@ fn convert_to_lits(iv: &[bool], sat_instance: &mut SatInstance) -> Vec<Lit> {
 #[cfg(test)]
 mod tests {
 
+    use std::cmp;
+
     use crate::T310::T310Cipher;
 
     use super::*;
     use crate::CCITT2::SimpleCCITT2;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use rustsat::instances::ManageVars;
-    use rustsat::solvers::{Solve, SolverResult};
+    use rustsat::solvers::{self, Solve, SolveStats, SolverResult};
     use rustsat::types::{Lit, TernaryVal, Var};
 
     #[test]
     fn brute_force_test_z_function() {
         for i in 0..64 {
-            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &[false; 61]);
+            let mut t310_sat =
+                T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&[false; 61]));
             let t310 = T310Cipher::new(&[false; 120], &[false; 120], &[false; 61]);
 
             let input_bits: [bool; 6] = [
@@ -510,7 +546,7 @@ mod tests {
     fn brute_force_test_f_bit_function() {
         for i in 0..5000 {
             let iv = random_bool_array_61(i);
-            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &iv);
+            let mut t310_sat = T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&iv));
             let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
             //println!("------");
             for _round in 0..100 {
@@ -539,15 +575,22 @@ mod tests {
 
     #[test]
     fn brute_force_test_single_round_function() {
+        let start = std::time::Instant::now();
         for i in 0..500 {
             let iv = random_bool_array_61(i);
-            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &iv);
+            let mut t310_sat = T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&iv));
             let mut t310 = T310Cipher::new(&[false; 120], &[false; 120], &iv);
             t310_sat.single_round();
             t310.single_round();
             let mut solver = rustsat_cadical::CaDiCaL::default();
+            //let mut solver = rustsat_kissat::Kissat::default();
+            //let mut solver = rustsat_minisat::core::Minisat::default();
+            //let mut solver = rustsat_batsat::BasicSolver::default();
+            //let mut solver = rustsat_glucose::core::Glucose::default();
+            //let mut solver = rustsat_cryptominisat::CryptoMiniSat::default();
             let (cnf, vm) = t310_sat.sat_instance.clone().into_cnf();
             if let Some(max_var) = vm.max_var() {
+                println!("MaxVar: {}", max_var);
                 solver.reserve(max_var).unwrap();
             }
             solver.add_cnf(cnf).unwrap();
@@ -568,6 +611,8 @@ mod tests {
             //println!("sat a {:?}", sat_output);
             assert_eq!(sat_output, expected_a);
         }
+        let duration = start.elapsed();
+        println!("test_encrypt_simple took {:?}", duration);
     }
     #[test]
     fn test_xor2() {
@@ -576,7 +621,8 @@ mod tests {
         for &(a_val, b_val) in &cases {
             let expected_bool = a_val ^ b_val;
             let expected_bool2 = expected_bool ^ b_val;
-            let mut t310_sat = T310SAT::new(&[false; 120], &[false; 120], &[false; 61]);
+            let mut t310_sat =
+                T310SAT::new(Some(&[false; 120]), Some(&[false; 120]), Some(&[false; 61]));
             let a_var = t310_sat.sat_instance.new_var();
             let b_var = t310_sat.sat_instance.new_var();
             let a_lit = a_var.pos_lit();
@@ -632,7 +678,7 @@ mod tests {
             let codec = SimpleCCITT2::new();
             let iv = random_bool_array_61(i);
             let s1 = random_bool_array_120(i);
-            let mut t310_sat = T310SAT::new(&s1, &[false; 120], &iv);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&[false; 120]), Some(&iv));
             let mut t310 = T310Cipher::new(&s1, &[false; 120], &iv);
             let text = "HELLO";
             let bool_array = codec
@@ -666,6 +712,348 @@ mod tests {
             //println!("encryped_ternary: {:?}", encryped_ternary);
             //println!("encryped_ternary: {:?}", solver_output);
             assert_eq!(encryped_ternary, solver_output);
+        }
+    }
+    #[test]
+    fn test_encrypt_simple_reverse() {
+        for i in 0..10 {
+            let codec = SimpleCCITT2::new();
+            let iv = random_bool_array_61(i);
+            let s1 = random_bool_array_120(i);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&[false; 120]), Some(&iv));
+            let mut t310 = T310Cipher::new(&s1, &[false; 120], &iv);
+            let text = "HELLO";
+            let bool_array = codec
+                .encode_to_bools(text)
+                .expect("Input text should be valid");
+
+            let mut encrypted: Vec<bool> = vec![];
+            let mut encrypted_lits: Vec<Lit> = vec![];
+            let mut bool_array_lits: Vec<Lit> = vec![];
+            for chunk in bool_array.chunks(5) {
+                let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
+                let encrypted_chunk = t310.encrypt_character_simple(chunk_array);
+                let input_chunk_lit: [Lit; 5] =
+                    std::array::from_fn(|_| t310_sat.sat_instance.new_lit());
+                bool_array_lits.extend_from_slice(&input_chunk_lit);
+                encrypted.extend_from_slice(&encrypted_chunk);
+                let encrypted_chunk_lits: [Lit; 5] =
+                    t310_sat.encrypt_character_simple_lit(input_chunk_lit);
+                encrypted_lits.extend_from_slice(&encrypted_chunk_lits);
+
+                for (bit, lit) in encrypted_chunk.iter().zip(encrypted_chunk_lits.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+            }
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            assert_eq!(result, rustsat::solvers::SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let solver_output: Vec<TernaryVal> =
+                encrypted_lits.iter().map(|lit| sol[lit.var()]).collect();
+            let encryped_ternary: Vec<TernaryVal> = encrypted
+                .iter()
+                .map(|b| convert_bool_to_tenary(*b))
+                .collect();
+
+            //println!("encryped_ternary: {:?}", encryped_ternary);
+            //println!("encryped_ternary: {:?}", solver_output);
+            assert_eq!(encryped_ternary, solver_output);
+
+            let input_ternary: Vec<TernaryVal> = bool_array
+                .iter()
+                .map(|b| convert_bool_to_tenary(*b))
+                .collect();
+            let solver_input_bool_array_lits: Vec<TernaryVal> =
+                bool_array_lits.iter().map(|lit| sol[lit.var()]).collect();
+            assert_eq!(input_ternary, solver_input_bool_array_lits);
+        }
+    }
+
+    #[test]
+    fn test_recover_iv() {
+        for i in 0..1 {
+            let codec = SimpleCCITT2::new();
+            let iv: [bool; 61] = random_bool_array_61(i);
+            let s1 = random_bool_array_120(i);
+            let s2 = random_bool_array_120(i + 1000);
+            let mut t310_sat = T310SAT::new(Some(&s1), Some(&s2), None);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let text = "HELLO Test Encryption";
+            let bool_array = codec
+                .encode_to_bools(text)
+                .expect("Input text should be valid");
+
+            let mut encrypted: Vec<bool> = vec![];
+            let mut encrypted_lits: Vec<Lit> = vec![];
+            let mut bool_array_lits: Vec<Lit> = vec![];
+            for chunk in bool_array.chunks(5) {
+                let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
+                let encrypted_chunk = t310.encrypt_character_simple(chunk_array);
+                encrypted.extend_from_slice(&encrypted_chunk);
+                //encrypted_lits.extend_from_slice(&t310_sat.encrypt_character_simple(chunk_array));
+
+                let input_chunk_lit: [Lit; 5] =
+                    std::array::from_fn(|_| t310_sat.sat_instance.new_lit());
+
+                let encrypted_chunk_lits: [Lit; 5] =
+                    t310_sat.encrypt_character_simple_lit(input_chunk_lit);
+                bool_array_lits.extend_from_slice(&input_chunk_lit);
+
+                encrypted_lits.extend_from_slice(&encrypted_chunk_lits);
+                //Set encrypted text equal to real ciphertext
+                for (bit, lit) in encrypted_chunk.iter().zip(encrypted_chunk_lits.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+                //Set plaintext
+                for (bit, lit) in chunk.iter().zip(input_chunk_lit.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+            }
+
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            assert_eq!(result, rustsat::solvers::SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let solver_output: Vec<TernaryVal> =
+                encrypted_lits.iter().map(|lit| sol[lit.var()]).collect();
+            let encryped_ternary: Vec<TernaryVal> = encrypted
+                .iter()
+                .map(|b| convert_bool_to_tenary(*b))
+                .collect();
+            let solver_output_bool_array_lits: Vec<TernaryVal> =
+                bool_array_lits.iter().map(|lit| sol[lit.var()]).collect();
+            println!("bool array: {:?}", bool_array);
+            println!("bool_array_lits: {:?}", solver_output_bool_array_lits);
+            //println!("encryped_ternary: {:?}", encryped_ternary);
+            //println!("encryped_ternary: {:?}", solver_output);
+            assert_eq!(encryped_ternary, solver_output);
+            /*
+            // Not sure if it makes sense to compare them completly because I am not sure if I implemented the iv / f vector correctly
+            //Would probably make more sense to to only compare the bits which are really used
+            let expected_iv_ternary: Vec<TernaryVal> =
+                iv.iter().map(|b| convert_bool_to_tenary(*b)).collect();
+            let iv_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_iv
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+            assert_eq!(expected_iv_ternary, iv_solver_output);
+            */
+        }
+    }
+
+    #[test]
+    fn test_recover_s2() {
+        for i in 0..1 {
+            let codec = SimpleCCITT2::new();
+            let iv: [bool; 61] = random_bool_array_61(i);
+            let s1 = random_bool_array_120(i);
+            let s2 = random_bool_array_120(i + 1000);
+            let mut t310_sat = T310SAT::new(Some(&s1), None, None);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let text = "HEY";
+            let bool_array = codec
+                .encode_to_bools(text)
+                .expect("Input text should be valid");
+
+            let mut encrypted: Vec<bool> = vec![];
+            let mut encrypted_lits: Vec<Lit> = vec![];
+            let mut bool_array_lits: Vec<Lit> = vec![];
+            for chunk in bool_array.chunks(5) {
+                let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
+                let encrypted_chunk = t310.encrypt_character_simple(chunk_array);
+                encrypted.extend_from_slice(&encrypted_chunk);
+                //encrypted_lits.extend_from_slice(&t310_sat.encrypt_character_simple(chunk_array));
+
+                let input_chunk_lit: [Lit; 5] =
+                    std::array::from_fn(|_| t310_sat.sat_instance.new_lit());
+
+                let encrypted_chunk_lits: [Lit; 5] =
+                    t310_sat.encrypt_character_simple_lit(input_chunk_lit);
+                bool_array_lits.extend_from_slice(&input_chunk_lit);
+
+                encrypted_lits.extend_from_slice(&encrypted_chunk_lits);
+                //Set encrypted text equal to real ciphertext
+                for (bit, lit) in encrypted_chunk.iter().zip(encrypted_chunk_lits.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+                //Set plaintext
+                for (bit, lit) in chunk.iter().zip(input_chunk_lit.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+            }
+            println!("Encrypted bools2: {:?}", &encrypted);
+            //let mut solver = rustsat_minisat::core::Minisat::default();
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            /*
+            let mut solver = rustsat_cryptominisat::CryptoMiniSat::default();
+            solver.set_option(rustsat_cryptominisat::Options::NumThreads(4));
+            */
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            println!("Stast: {:?}", solver.stats());
+            assert_eq!(result, rustsat::solvers::SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let solver_output: Vec<TernaryVal> =
+                encrypted_lits.iter().map(|lit| sol[lit.var()]).collect();
+            let encryped_ternary: Vec<TernaryVal> = encrypted
+                .iter()
+                .map(|b| convert_bool_to_tenary(*b))
+                .collect();
+            let solver_output_bool_array_lits: Vec<TernaryVal> =
+                bool_array_lits.iter().map(|lit| sol[lit.var()]).collect();
+            println!("bool array: {:?}", bool_array);
+            println!("bool_array_lits: {:?}", solver_output_bool_array_lits);
+            println!("encryped_ternary: {:?}", encryped_ternary);
+            println!("encryped_ternary: {:?}", solver_output);
+            assert_eq!(encryped_ternary, solver_output);
+            println!("iv: {:?}", iv);
+            println!("s1: {:?}", s1);
+            println!("s2: {:?}", s2);
+            let expected_s2_ternary: Vec<TernaryVal> =
+                s2.iter().map(|b| convert_bool_to_tenary(*b)).collect();
+            let s2_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_s2
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+
+            let iv_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_iv
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+
+            println!("Iv solver output: {:?}", iv_solver_output);
+            assert_eq!(expected_s2_ternary, s2_solver_output);
+        }
+    }
+
+    #[test]
+    fn test_recover_s2_and_s1() {
+        for i in 0..1 {
+            let codec = SimpleCCITT2::new();
+            let iv: [bool; 61] = random_bool_array_61(i);
+            let s1 = random_bool_array_120(i);
+            let s2 = random_bool_array_120(i + 1000);
+            let mut t310_sat = T310SAT::new(None, None, None);
+            let mut t310 = T310Cipher::new(&s1, &s2, &iv);
+            let text = "HEY";
+            let bool_array = codec
+                .encode_to_bools(text)
+                .expect("Input text should be valid");
+
+            let mut encrypted: Vec<bool> = vec![];
+            let mut encrypted_lits: Vec<Lit> = vec![];
+            let mut bool_array_lits: Vec<Lit> = vec![];
+            for chunk in bool_array.chunks(5) {
+                let chunk_array: [bool; 5] = chunk.try_into().expect("Chunk size must be 5");
+                let encrypted_chunk = t310.encrypt_character_simple(chunk_array);
+                encrypted.extend_from_slice(&encrypted_chunk);
+                //encrypted_lits.extend_from_slice(&t310_sat.encrypt_character_simple(chunk_array));
+
+                let input_chunk_lit: [Lit; 5] =
+                    std::array::from_fn(|_| t310_sat.sat_instance.new_lit());
+
+                let encrypted_chunk_lits: [Lit; 5] =
+                    t310_sat.encrypt_character_simple_lit(input_chunk_lit);
+                bool_array_lits.extend_from_slice(&input_chunk_lit);
+
+                encrypted_lits.extend_from_slice(&encrypted_chunk_lits);
+                //Set encrypted text equal to real ciphertext
+                for (bit, lit) in encrypted_chunk.iter().zip(encrypted_chunk_lits.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+                //Set plaintext
+                for (bit, lit) in chunk.iter().zip(input_chunk_lit.iter()) {
+                    let assigned_lit = if *bit { *lit } else { !*lit };
+                    t310_sat.sat_instance.add_unit(assigned_lit);
+                }
+            }
+            println!("Encrypted bools2: {:?}", &encrypted);
+            let mut solver = rustsat_cadical::CaDiCaL::default();
+            /*
+                        let mut solver = rustsat_cryptominisat::CryptoMiniSat::default();
+                        solver.set_option(rustsat_cryptominisat::Options::NumThreads(4));
+            */
+            let (cnf, vm) = t310_sat.sat_instance.into_cnf();
+            if let Some(max_var) = vm.max_var() {
+                solver.reserve(max_var).unwrap();
+            }
+            solver.add_cnf(cnf).unwrap();
+
+            let result = solver.solve().expect("SAT expected");
+            println!("Stast: {:?}", solver.stats());
+            assert_eq!(result, rustsat::solvers::SolverResult::Sat);
+            let sol = solver.full_solution().unwrap();
+            let solver_output: Vec<TernaryVal> =
+                encrypted_lits.iter().map(|lit| sol[lit.var()]).collect();
+            let encryped_ternary: Vec<TernaryVal> = encrypted
+                .iter()
+                .map(|b| convert_bool_to_tenary(*b))
+                .collect();
+            let solver_output_bool_array_lits: Vec<TernaryVal> =
+                bool_array_lits.iter().map(|lit| sol[lit.var()]).collect();
+            println!("bool array: {:?}", bool_array);
+            println!("bool_array_lits: {:?}", solver_output_bool_array_lits);
+            println!("encryped_ternary: {:?}", encryped_ternary);
+            println!("encryped_ternary: {:?}", solver_output);
+            assert_eq!(encryped_ternary, solver_output);
+            println!("iv: {:?}", iv);
+            println!("s1: {:?}", s1);
+            println!("s2: {:?}", s2);
+            let expected_s2_ternary: Vec<TernaryVal> =
+                s2.iter().map(|b| convert_bool_to_tenary(*b)).collect();
+            let s2_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_s2
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+
+            let iv_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_iv
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+
+            let expected_s1_ternary: Vec<TernaryVal> =
+                s1.iter().map(|b| convert_bool_to_tenary(*b)).collect();
+            let s1_solver_output: Vec<TernaryVal> = t310_sat
+                .initial_s1
+                .iter()
+                .map(|lit| sol[lit.var()])
+                .collect();
+
+            println!("expected s1: {:?}", expected_s1_ternary);
+            println!("solver s1: {:?}", s1_solver_output);
+
+            println!("Iv solver output: {:?}", iv_solver_output);
+            assert_eq!(expected_s2_ternary, s2_solver_output);
         }
     }
 }
