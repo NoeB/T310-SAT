@@ -1,5 +1,6 @@
 use rustsat::{
-    instances::SatInstance,
+    encodings::card::{BoundLower, DefLowerBounding},
+    instances::{Cnf, SatInstance},
     types::{Clause, Lit, Var},
 };
 
@@ -7,11 +8,14 @@ pub struct T310SAT {
     // Key components: two 120-bit sequences
     s1: [Lit; 120],
     s2: [Lit; 120],
+    initial_s1: [Lit; 120],
+    initial_s2: [Lit; 120],
 
-    // Standard U-Vector: 37-bit register
-    u_vector: [Lit; 37],
+    // Standard U-Vector: 36-bit register
+    u_vector: [Lit; 36],
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
     f_vector: [Lit; 61],
+    initial_iv: [Lit; 61],
 
     //Long Term Key
     // P function mapping {1,2,...27} to {1,...36}
@@ -75,7 +79,7 @@ impl T310SAT {
     }
 
     #[allow(dead_code)]
-    fn z(&mut self, e1: Lit, e2: Lit, e3: Lit, e4: Lit, e5: Lit, e6: Lit) -> Lit {
+    fn z_2(&mut self, e1: Lit, e2: Lit, e3: Lit, e4: Lit, e5: Lit, e6: Lit) -> Lit {
         let output = self.sat_instance.new_lit();
 
         let clauses = vec![
@@ -117,7 +121,53 @@ impl T310SAT {
     }
 
     #[allow(dead_code)]
+    fn z(&mut self, e1: Lit, e2: Lit, e3: Lit, e4: Lit, e5: Lit, e6: Lit) -> Lit {
+        let output = self.sat_instance.new_lit();
+        let clauses = vec![
+            vec![e3, !e4, !e5, e6],
+            vec![e1, e2, e3, e4, !e6],
+            vec![e2, e3, !e4, e5],
+            vec![!e1, !e4, !e5, e6],
+            vec![!e2, e4, !e5, e6],
+            vec![!e1, e2, !e3, e4, e5, !e6],
+            vec![e1, !e2, e3, !e5],
+            vec![!e1, !e2, !e4, e5, !e6],
+            vec![!e2, e3, e4, e6],
+            vec![!e1, e2, e3, !e5],
+            vec![e1, !e2, !e3, e4, e5],
+            vec![e1, e2, !e4, e5, !e6],
+            vec![!e1, !e2, !e3, !e4, e6],
+            vec![e1, !e3, !e4, !e5, !e6],
+        ];
+        let mut and_clauses = vec![];
+        for clause in &clauses {
+            let and_output = self.sat_instance.new_lit();
+            self.sat_instance.add_cube_impl_lit(&clause, and_output);
+            self.sat_instance.add_lit_impl_cube(and_output, clause);
+            and_clauses.push(and_output);
+        }
+        self.sat_instance.add_clause_impl_lit(&and_clauses, output);
+        self.sat_instance.add_lit_impl_clause(output, &and_clauses);
+        output
+    }
+
     fn get_f_bit_and_rotate(&mut self) -> Lit {
+        let f0 = self.f_vector[0];
+        let f1 = self.f_vector[1];
+        let f2 = self.f_vector[2];
+        let f5 = self.f_vector[5];
+
+        // Chain XORs: ((f0 ⊕ f1) ⊕ f2) ⊕ f5
+        let xor_01 = self.xor2(f0, f1);
+        let xor_012 = self.xor2(xor_01, f2);
+        let output = self.xor2(xor_012, f5);
+
+        self.f_vector.rotate_right(1);
+        self.f_vector[0] = output;
+        output
+    }
+    #[allow(dead_code)]
+    fn get_f_bit_and_rotate_2(&mut self) -> Lit {
         let output = self.sat_instance.new_lit();
         let f0 = self.f_vector[0];
         let f1 = self.f_vector[1];
@@ -177,8 +227,8 @@ impl T310SAT {
                 srv[4] = feedback_bit;
             }
     */
-    pub fn encrypt_character_simple(&mut self, char: [bool; 5]) -> [Lit; 5] {
-        let char_lit = convert_to_lits(&char, &mut self.sat_instance);
+
+    pub fn encrypt_character_simple_lit(&mut self, char_lit: [Lit; 5]) -> [Lit; 5] {
         self.single_round();
         let srv_2: [Lit; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
 
@@ -189,6 +239,12 @@ impl T310SAT {
             self.xor2(srv_2[3], char_lit[3]),
             self.xor2(srv_2[4], char_lit[4]),
         ]
+    }
+    pub fn encrypt_character_simple(&mut self, char: [bool; 5]) -> [Lit; 5] {
+        let char_lit = convert_to_lits(&char, &mut self.sat_instance);
+        self.encrypt_character_simple_lit(
+            char_lit.try_into().expect("Must be 5 exactly 5 elements"),
+        )
     }
     /*
         pub fn encrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
@@ -238,6 +294,26 @@ impl T310SAT {
         self.u_vector[p]
     }
     fn xor2(&mut self, a: Lit, b: Lit) -> Lit {
+        let output = self.sat_instance.new_lit();
+
+        // XOR(a,b) = output is equivalent to these 4 clauses:
+        // (a ∨ b ∨ ¬output)
+        // (¬a ∨ ¬b ∨ ¬output)
+        // (¬a ∨ b ∨ output)
+        // (a ∨ ¬b ∨ output)
+
+        // When output is true: (a ∨ b) ∧ (¬a ∨ ¬b)
+        self.sat_instance.add_lit_impl_clause(output, &vec![a, b]);
+        self.sat_instance.add_lit_impl_clause(output, &vec![!a, !b]);
+
+        // When output is false: (¬a ∨ ¬b) ∧ (a ∨ b)
+        // Which is equivalent to: (a ∨ ¬b) ∧ (¬a ∨ b)
+        self.sat_instance.add_lit_impl_clause(!output, &vec![!a, b]);
+        self.sat_instance.add_lit_impl_clause(!output, &vec![a, !b]);
+
+        output
+    }
+    fn xor22(&mut self, a: Lit, b: Lit) -> Lit {
         let output = self.sat_instance.new_lit();
         //And(Or(t8, u28), Or(~t8, ~u28))
 
