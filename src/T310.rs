@@ -3,8 +3,6 @@ pub struct T310Cipher {
     s1: [bool; 120],
     s2: [bool; 120],
 
-    // Standard U-Vector: 37-bit register
-    u_vector: [bool; 37],
     // 61-bit synchronization sequence (initialization vector (or F - Vector LFSR))
     f_vector: [bool; 61],
 
@@ -14,6 +12,9 @@ pub struct T310Cipher {
     // D function mapping {1,2,...9} to {0,1,...36}
     d: [u8; 9],
     alpha: u8,
+    // Standard U-Vector: 36-bit register
+    u_vector: [bool; 36],
+    //Output Regster
     a: [bool; 13],
 }
 
@@ -26,13 +27,13 @@ impl T310Cipher {
         // Convert IV to BitVec
 
         // Initialize with the standard U-Vector
-        let standard_u_vector: [bool; 37] = [
+        let standard_u_vector: [bool; 36] = [
             false, true, true, false, true, false, false, true, true, true, false, false, false,
             true, true, true, true, true, false, false, true, false, false, false, false, true,
-            false, true, true, false, true, false, false, false, true, true, false,
+            false, true, true, false, true, false, false, false, true, true,
         ];
 
-        // Longterm Key LZS-31 approved ()
+        // Longterm Key LZS-31 approved (https://scz.bplaced.net/t310-schluessel.html)
         let p: [u8; 27] = [
             7, 4, 33, 30, 18, 36, 5, 35, 9, 16, 23, 26, 32, 12, 21, 1, 13, 25, 20, 8, 24, 15, 22,
             29, 10, 28, 6,
