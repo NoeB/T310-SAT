@@ -5,11 +5,17 @@ edition = "2024"
 
 [dependencies]
 rand = "0.9.0"
-## Needed until a relase is cut with this change included: https://github.com/chrjabs/rustsat/pull/373
-#rustsat = "0.7.1"
-#rustsat-cadical = "0.7.1"
-rustsat = {git= "https://github.com/chrjabs/rustsat.git"}
-rustsat-cadical = {git= "https://github.com/chrjabs/rustsat.git"}
+## Not Needed until cryptominisat gets release or if its not needed the upstream can be used 
+#rustsat = "0.7.2"
+#rustsat-cadical = "0.7.2"
+
+rustsat = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-cadical = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-kissat = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-batsat = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-glucose = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-minisat = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
+rustsat-cryptominisat = {git= "https://github.com/NoeB/rustsat", branch = "cryptominisat" }
 thiserror = "2.0.12"
 
 

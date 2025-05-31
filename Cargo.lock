@@ -9,7 +9,12 @@ dependencies = [
  "pyo3",
  "rand",
  "rustsat",
+ "rustsat-batsat",
  "rustsat-cadical",
+ "rustsat-cryptominisat",
+ "rustsat-glucose",
+ "rustsat-kissat",
+ "rustsat-minisat",
  "thiserror",
 ]
 
@@ -50,6 +55,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "batsat"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec82b6bbce8ea42f5003417b699267860a9f4dd869fc9ba8faceac761d5afed1"
+dependencies = [
+ "bit-vec",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -68,6 +82,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-vec"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f59bbe95d4e52a6398ec21238d31577f2b28a9d86807f06ca59d191d8440d0bb"
+
+[[package]]
 name = "bitflags"
 version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -81,9 +101,9 @@ checksum = "1628fb46dfa0b37568d12e5edd512553eccf6a22a78e8bde00bb4aed84d5bdbf"
 
 [[package]]
 name = "cc"
-version = "1.2.24"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "jobserver",
  "libc",
@@ -128,6 +148,15 @@ dependencies = [
  "glob",
  "libc",
  "libloading",
+]
+
+[[package]]
+name = "cmake"
+version = "0.1.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -268,9 +297,9 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libloading"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a793df0d7afeac54f95b471d3af7f0d4fb975699f972341a4b76988d49cdf0c"
+checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
  "windows-targets 0.53.0",
@@ -516,7 +545,7 @@ dependencies = [
 [[package]]
 name = "rustsat"
 version = "0.7.1"
-source = "git+https://github.com/chrjabs/rustsat.git#349f2af0b53960dd07fed810bc9328a1d20d12bd"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
 dependencies = [
  "anyhow",
  "cpu-time",
@@ -528,9 +557,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsat-batsat"
+version = "0.7.1"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
+dependencies = [
+ "anyhow",
+ "batsat",
+ "cpu-time",
+ "rustsat",
+ "thiserror",
+]
+
+[[package]]
 name = "rustsat-cadical"
 version = "0.7.1"
-source = "git+https://github.com/chrjabs/rustsat.git#349f2af0b53960dd07fed810bc9328a1d20d12bd"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -538,6 +579,60 @@ dependencies = [
  "chrono",
  "cpu-time",
  "glob",
+ "rustsat",
+ "thiserror",
+]
+
+[[package]]
+name = "rustsat-cryptominisat"
+version = "0.1.0"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "cmake",
+ "cpu-time",
+ "rustsat",
+ "thiserror",
+]
+
+[[package]]
+name = "rustsat-glucose"
+version = "0.7.1"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "cmake",
+ "cpu-time",
+ "rustsat",
+ "thiserror",
+]
+
+[[package]]
+name = "rustsat-kissat"
+version = "0.7.1"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "cc",
+ "chrono",
+ "cpu-time",
+ "glob",
+ "rustsat",
+ "thiserror",
+]
+
+[[package]]
+name = "rustsat-minisat"
+version = "0.7.1"
+source = "git+https://github.com/NoeB/rustsat?branch=cryptominisat#bdb0b9f49966e45fcfca21794ba4437aba4665e4"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "cmake",
+ "cpu-time",
  "rustsat",
  "thiserror",
 ]
