@@ -130,7 +130,11 @@ impl T310Cipher {
             srv_2[4] ^ char[4],
         ]
     }
+    /*
 
+    Based on:  M. Altenhuber, “Analyse und Implementierung der DDR-Chiffriermaschinen  T-310/50 und T-316”.
+     (https://www.cryptool.org/media/publications/theses/BA_Altenhuber.pdf)
+      */
     pub fn encrypt_character(&mut self, char: [bool; 5]) -> [bool; 5] {
         self.single_round();
         let mut srv_2: [bool; 5] = [self.a[0], self.a[1], self.a[2], self.a[3], self.a[4]];
@@ -183,7 +187,7 @@ impl T310Cipher {
         let mut t_array = [false; 10];
         for outer_round in 0..12 {
             for inner_round in 0..126 {
-                //    for inner_round in 0..2 {
+                //for inner_round in 0..2 {
                 t_array[9] = t_array[8] ^ self.get_u(self.p[28 - 2] as usize - 1);
                 t_array[8] = t_array[7]
                     ^ self.z(
