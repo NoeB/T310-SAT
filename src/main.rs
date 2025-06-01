@@ -73,7 +73,7 @@ fn main() -> Result<(), SimpleError> {
 
     // Test encoding and decoding
     //let text = "HELLO 1234 TEST T310 test";
-    let text = "HELLO";
+    let text = "HEY";
     println!("Original: {}", text);
 
     let encoded = codec.encode(text)?;
@@ -85,6 +85,7 @@ fn main() -> Result<(), SimpleError> {
     // Test bool array
     let bool_array = codec.encode_to_bools(text)?;
     println!("Bool array length: {}", bool_array.len());
+    println!("Bool array : {:?}", bool_array);
 
     let from_bools = codec.decode_from_bools(&bool_array)?;
     println!("From bools: {}", from_bools);
@@ -121,26 +122,26 @@ fn main() -> Result<(), SimpleError> {
     // Compare SAT output if correect
 
     let s1_test = [
-        false, true, true, true, false, false, true, true, true, true, true, true, false, false,
-        true, true, false, true, false, false, true, false, false, false, false, true, false,
-        false, true, true, true, false, true, true, false, true, true, false, false, false, false,
-        false, true, false, true, false, true, false, true, true, false, true, false, true, false,
-        false, true, true, false, true, true, false, false, false, true, true, false, false, true,
-        true, true, false, true, true, true, true, false, true, false, false, false, false, true,
-        false, true, false, true, false, true, false, true, true, false, true, false, true, true,
-        true, true, true, false, true, true, false, false, false, true, false, false, false, false,
-        false, true, true, true, true, true, true, true, true,
+        false, false, true, true, true, false, true, false, false, false, true, false, false,
+        false, true, false, true, true, false, true, true, false, false, true, true, false, true,
+        true, false, true, false, false, true, true, false, true, false, true, true, true, true,
+        false, false, false, true, false, false, true, true, false, true, true, false, true, false,
+        true, false, true, true, false, true, false, true, true, false, false, true, false, true,
+        false, false, true, true, true, false, false, true, true, false, false, false, false,
+        false, false, false, true, true, true, true, false, false, false, true, true, true, false,
+        false, false, true, false, true, true, false, true, false, false, false, false, false,
+        true, true, true, false, true, true, false, false, true, false, true,
     ];
     let s2_test: [bool; 120] = [
-        true, false, false, false, true, true, false, false, true, false, false, true, true, true,
-        false, false, true, false, false, true, true, false, false, true, true, true, true, true,
-        true, false, false, false, false, false, false, true, true, false, false, true, true,
-        false, false, true, false, true, false, false, false, false, true, false, true, true,
-        false, true, true, false, false, false, false, false, false, false, false, true, true,
-        false, false, false, false, false, true, false, false, true, true, true, false, true,
-        false, false, false, false, false, true, true, true, true, true, false, true, false, false,
-        true, true, false, false, false, true, false, false, false, false, true, true, false, true,
-        false, false, true, false, true, true, false, false, false, true, false, true,
+        true, false, true, false, true, false, false, false, false, false, true, false, false,
+        false, false, false, false, false, true, true, true, false, false, false, false, true,
+        true, true, true, true, false, false, false, false, false, false, true, false, true, true,
+        false, false, false, false, false, true, false, false, false, true, false, false, true,
+        false, false, true, true, false, false, false, false, false, true, false, true, false,
+        true, true, false, false, true, false, true, false, true, true, false, true, false, true,
+        false, false, true, true, false, true, false, false, false, false, false, true, false,
+        false, false, false, false, false, false, true, true, true, true, false, true, true, false,
+        false, true, true, false, true, false, true, false, false, false, true, true, true,
     ];
     let iv_test_1 = [
         true, true, true, true, true, false, true, true, true, false, false, true, false, false,
@@ -150,7 +151,7 @@ fn main() -> Result<(), SimpleError> {
         true, true, false, true, true, false,
     ];
     let iv_test = [
-        false, false, true, false, true, false, false, false, false, false, false, false, false,
+        true, true, true, true, true, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,
         false, false, false, false, false, false, false, false, false, false, false, false, false,

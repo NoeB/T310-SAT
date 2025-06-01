@@ -62,8 +62,8 @@ impl T310Cipher {
         let alpha: u8 = 2; // {1,2,3,...36}
         let a = [false; 13];
 
-        println!("s1: {:?}", s1);
-        println!("s2: {:?}", s2);
+        //println!("s1: {:?}", s1);
+        //println!("s2: {:?}", s2);
         /*
         println!("standard_u_vector: {:?}", standard_u_vector);
         println!("iv_bitvec: {:?}", iv);
