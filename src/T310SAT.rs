@@ -474,6 +474,8 @@ impl T310SAT {
                     self.get_u(self.p[20 - 2] as usize - 1),
                 );
                 t_array[6] = self.xor2(t_array[5], z_6);
+                let s2_bit = self.get_s2_bit();
+                t_array[6] = self.xor2(t_array[6], s2_bit);
                 t_array[5] = self.xor2(t_array[4], self.get_u(self.p[14 - 2] as usize - 1));
                 let z_4 = self.z(
                     self.get_u(self.p[8 - 2] as usize - 1),

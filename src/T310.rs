@@ -200,6 +200,7 @@ impl T310Cipher {
                     );
                 t_array[7] = (t_array[6] ^ self.get_u(self.p[21 - 2] as usize - 1));
                 t_array[6] = t_array[5]
+                    ^ self.get_s2_bit()
                     ^ self.z(
                         self.get_u(self.p[15 - 2] as usize - 1),
                         self.get_u(self.p[16 - 2] as usize - 1),
