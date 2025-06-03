@@ -4,10 +4,10 @@ Attempt to do a Known-plaintext attach of the T310 Streamcipher.
 
 ### Rustsat
 
-Currently I am using a forc of RustSat which includes the CryptoMiniSat library
-(based on the upstream branch) If CryptoMiniSat is not needed, then the upstream
-version can be used. With CryptoMiniSat cmake and git must be installed on the
-system.
+Currently I am using a fork of RustSat (https://github.com/chrjabs/rustsat)
+which includes the CryptoMiniSat library (based on the upstream branch) If
+CryptoMiniSat is not needed, then the upstream version can be used. With
+CryptoMiniSat cmake and git must be installed on the system.
 
 ## Credits
 
